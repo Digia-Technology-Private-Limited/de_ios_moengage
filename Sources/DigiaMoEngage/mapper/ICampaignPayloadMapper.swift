@@ -7,6 +7,6 @@ import MoEngageInApps
 /// modification when the mapping logic changes. Provide a custom implementation
 /// and inject it into `MoEngagePlugin` for testing or alternative strategies.
 public protocol ICampaignPayloadMapper {
-    /// Translates a MoEngage `MoEngageInAppSelfHandledCampaign` into a Digia `InAppPayload`.
-    func map(_ campaign: MoEngageInAppSelfHandledCampaign) -> InAppPayload
+    /// Translates a MoEngage campaign into Digia Engage's CEP trigger contract.
+    func map(_ campaign: MoEngageInAppSelfHandledCampaign) -> CEPTriggerPayload
 }

@@ -2,100 +2,101 @@ import DigiaEngage
 import Foundation
 import MoEngageInApps
 
-/// Default implementation of `ICampaignPayloadMapper`.
-///
-/// Translates an `InAppSelfHandledCampaign` into a Digia `InAppPayload` by:
-/// - parsing the marketer-authored JSON from the campaign's self-handled content,
-/// - merging it with campaign metadata (ID + name), and
-/// - writing the identifiers needed for lifecycle correlation into `InAppPayload.cepContext`.
-///
-/// Parsing failures are gracefully degraded — an empty content map is used
-/// so the campaign still reaches the rendering engine.
+/// Maps a MoEngage self-handled campaign to Digia Engage's CEP trigger contract.
 public struct CampaignPayloadMapper: ICampaignPayloadMapper {
+    private static let campaignKeyNames = [
+        "digiaKey", "digia_key", "digia-key",
+        "campaignKey", "campaign_key", "campaign-key",
+        "digiaCampaign", "digia_campaign", "digia-campaign",
+        "digiaCampaignKey", "digia_campaign_key", "digia-campaign-key",
+    ]
+
     public init() {}
 
-    public func map(_ campaign: MoEngageInAppSelfHandledCampaign) -> InAppPayload {
-        let campaignId   = campaign.campaignId
-        let campaignName = campaign.campaignName
+    public func map(_ campaign: MoEngageInAppSelfHandledCampaign) -> CEPTriggerPayload {
+        let campaignId = campaign.campaignId
+        let payload = decodePayload(from: campaign)
 
-        let content = buildContent(from: campaign)
+        let type = stringValue(payload["type"]) ?? "inline"
+        let metadata = [
+            "campaignId": campaignId,
+            "campaignName": campaign.campaignName,
+            "type": type,
+        ]
 
-        return InAppPayload(
-            id: campaignId,
-            content: content,
-            cepContext: [
-                "campaignId":   campaignId,
-                "campaignName": campaignName,
-            ]
+        return CEPTriggerPayload(
+            cepCampaignId: campaignId,
+            campaignKey: resolveCampaignKey(payload, fallback: campaignId),
+            cepMetadata: metadata,
+            variables: extractVariables(payload)
         )
     }
 
-    // MARK: - Private
+    private func decodePayload(
+        from campaign: MoEngageInAppSelfHandledCampaign
+    ) -> [String: Any] {
+        guard
+            let data = campaign.campaignContent.data(using: .utf8),
+            let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else {
+            return [:]
+        }
+        return payload
+    }
 
-    private func buildContent(from campaign: MoEngageInAppSelfHandledCampaign) -> InAppPayloadContent {
-        let campaignId   = campaign.campaignId
-        let campaignName = campaign.campaignName
+    private func resolveCampaignKey(_ payload: [String: Any], fallback: String) -> String {
+        for key in Self.campaignKeyNames {
+            if let value = stringValue(payload[key]) {
+                return value
+            }
+        }
+        return fallback
+    }
 
-        // The marketer-authored payload JSON lives in the self-handled content string.
-        var payloadMap: [String: JSONValue] = [:]
-      let jsonString = campaign.campaignContent
-          if let data = jsonString.data(using: .utf8) {
-            do {
-                if let decoded = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                    for (key, value) in decoded {
-                        payloadMap[key] = jsonValueFrom(any: value)
-                    }
+    private func extractVariables(_ payload: [String: Any]) -> [String: String]? {
+        var variables: [String: String] = [:]
+
+        if let arguments = payload["args"] as? [String: Any] {
+            for (key, value) in arguments {
+                if let value = coerceToString(value) {
+                    variables[key] = value
                 }
-            } catch {
-                // Graceful degradation — render with metadata only.
+            }
+        } else {
+            for (key, value) in payload {
+                guard
+                    !Self.campaignKeyNames.contains(key),
+                    key != "type",
+                    key != "args",
+                    let value = coerceToString(value)
+                else {
+                    continue
+                }
+                variables[key] = value
             }
         }
 
-        // Extract only the Digia-structural fields; everything else goes into args.
-        let type         = stringValue(payloadMap["type"]) ?? "inline"
-        let placementKey = stringValue(payloadMap["placementKey"])
-        let viewId       = stringValue(payloadMap["viewId"])
-        let command      = stringValue(payloadMap["command"])
-
-      var args: [String: JSONValue] = [:]
-
-if let value = payloadMap["args"],
-   case let .object(obj) = value {
-    args = obj
-}
-
-
-        return InAppPayloadContent(
-            type:         type,
-            placementKey: placementKey,
-            viewId:       viewId,
-            command:      command,
-            args:         args
-        )
+        return variables.isEmpty ? nil : variables
     }
 
-    private func stringValue(_ value: JSONValue?) -> String? {
-        guard case .string(let s) = value else { return nil }
-        return s
+    private func stringValue(_ rawValue: Any?) -> String? {
+        guard
+            let value = (rawValue as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+            !value.isEmpty
+        else {
+            return nil
+        }
+        return value
     }
 
-    /// Converts an `Any` value (from `JSONSerialization`) to `JSONValue`.
-    private func jsonValueFrom(any value: Any) -> JSONValue {
+    private func coerceToString(_ value: Any) -> String? {
         switch value {
-        case let s as String:
-            return .string(s)
-        case let b as Bool:
-            return .bool(b)
-        case let i as Int:
-            return .int(i)
-        case let d as Double:
-            return .double(d)
-        case let arr as [Any]:
-            return .array(arr.map { jsonValueFrom(any: $0) })
-        case let obj as [String: Any]:
-            return .object(obj.mapValues { jsonValueFrom(any: $0) })
+        case let value as String:
+            return value.isEmpty ? nil : value
+        case let value as NSNumber:
+            return value.stringValue
         default:
-            return .null
+            return nil
         }
     }
 }

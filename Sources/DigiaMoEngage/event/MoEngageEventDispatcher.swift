@@ -28,12 +28,12 @@ final class MoEngageEventDispatcher {
     /// Dispatches event to the correct handler based on payload type ("inline" or in-app).
     /// Returns true if dispatched, false if campaignId is missing or not cached.
     @discardableResult
-    func dispatch(_ event: DigiaExperienceEvent, payload: InAppPayload) -> Bool {
-        guard let campaignId = payload.cepContext["campaignId"] else {
-            logger.warning("dispatch: missing campaignId in cepContext")
+    func dispatch(_ event: DigiaExperienceEvent, payload: CEPTriggerPayload) -> Bool {
+        guard let campaignId = payload.cepMetadata["campaignId"] else {
+            logger.warning("dispatch: missing campaignId in cepMetadata")
             return false
         }
-        let type = payload.content.type
+        let type = payload.cepMetadata["type"]
         if type == "inline" {
             return dispatchInlineEvent(event, campaignId: campaignId)
         } else {

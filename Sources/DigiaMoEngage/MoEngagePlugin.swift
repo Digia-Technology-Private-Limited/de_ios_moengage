@@ -78,9 +78,9 @@ public final class MoEngagePlugin: DigiaCEPPlugin {
         logger.info("\(self.identifier): forwardScreen → \(name)")
     }
 
-    public func notifyEvent(_ event: DigiaExperienceEvent, payload: InAppPayload) {
-        guard payload.cepContext["campaignId"] != nil else {
-            logger.warning("(self.identifier): notifyEvent  missing campaignId in cepContext")
+    public func notifyEvent(_ event: DigiaExperienceEvent, payload: CEPTriggerPayload) {
+        guard payload.cepMetadata["campaignId"] != nil else {
+            logger.warning("\(self.identifier): notifyEvent missing campaignId in cepMetadata")
             return
         }
         dispatcher.dispatch(event, payload: payload)
@@ -115,9 +115,14 @@ public final class MoEngagePlugin: DigiaCEPPlugin {
 
     func handleSelfHandledCampaign(_ campaign: MoEngageInAppSelfHandledCampaign) {
         let payload = mapper.map(campaign)
-        cache.put(campaignId: payload.id, data: campaign)
-        logger.info("\(self.identifier): campaign ready — id=\(payload.id)")
-        delegate?.onCampaignTriggered(payload)
+        cache.put(campaignId: payload.cepCampaignId, data: campaign)
+        logger.info("\(self.identifier): campaign ready — id=\(payload.cepCampaignId)")
+        guard let delegate, delegate.onCampaignTriggered(payload) else {
+            logger.info("\(self.identifier): campaign rejected — releasing id=\(payload.cepCampaignId)")
+            MoEngageSDKInApp.sharedInstance.selfHandledDismissed(campaignInfo: campaign)
+            cache.remove(campaignId: payload.cepCampaignId)
+            return
+        }
     }
 }
 

@@ -4,7 +4,7 @@ import PackageDescription
 let package = Package(
     name: "DigiaMoEngage",
     platforms: [
-        .iOS(.v17),
+        .iOS(.v15),
     ],
     products: [
         .library(
@@ -13,11 +13,8 @@ let package = Package(
         ),
     ],
     dependencies: [
-        // Digia Engage iOS SDK
-        .package(
-            url: "https://github.com/Digia-Technology-Private-Limited/digia_engage_iOS.git",
-            from: "1.0.0-beta.2"
-        ),
+        // Digia Engage iOS SDK — local sibling checkout used for iOS 15 validation.
+        .package(path: "../core"),
         // MoEngage iOS SDK
         .package(
             url: "https://github.com/moengage/MoEngage-iOS-SDK.git",
@@ -28,7 +25,7 @@ let package = Package(
         .target(
             name: "DigiaMoEngage",
             dependencies: [
-                .product(name: "DigiaEngage", package: "digia_engage_iOS"),
+                .product(name: "DigiaEngage", package: "core"),
                 .product(name: "MoEngageInApps", package: "MoEngage-iOS-SDK"),
             ],
             path: "Sources/DigiaMoEngage"
