@@ -56,7 +56,7 @@ public struct CampaignPayloadMapper: ICampaignPayloadMapper {
     private func extractVariables(_ payload: [String: Any]) -> [String: String]? {
         var variables: [String: String] = [:]
 
-        if let arguments = payload["args"] as? [String: Any] {
+        if let arguments = payload["variables"] as? [String: Any] ?? payload["args"] as? [String: Any] {
             for (key, value) in arguments {
                 if let value = coerceToString(value) {
                     variables[key] = value
@@ -68,6 +68,7 @@ public struct CampaignPayloadMapper: ICampaignPayloadMapper {
                     !Self.campaignKeyNames.contains(key),
                     key != "type",
                     key != "args",
+                    key != "variables",
                     let value = coerceToString(value)
                 else {
                     continue

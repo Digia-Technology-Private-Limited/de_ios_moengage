@@ -13,8 +13,8 @@ let package = Package(
         ),
     ],
     dependencies: [
-        // Digia Engage iOS SDK — local sibling checkout used for iOS 15 validation.
-        .package(path: "../core"),
+        // Digia Engage iOS SDK
+        .package(url: "https://github.com/Digia-Technology-Private-Limited/de_ios_core.git", from: "3.13.2"),
         // MoEngage iOS SDK
         .package(
             url: "https://github.com/moengage/MoEngage-iOS-SDK.git",
@@ -25,7 +25,7 @@ let package = Package(
         .target(
             name: "DigiaMoEngage",
             dependencies: [
-                .product(name: "DigiaEngage", package: "core"),
+                .product(name: "DigiaEngage", package: "de_ios_core"),
                 .product(name: "MoEngageInApps", package: "MoEngage-iOS-SDK"),
             ],
             path: "Sources/DigiaMoEngage"
