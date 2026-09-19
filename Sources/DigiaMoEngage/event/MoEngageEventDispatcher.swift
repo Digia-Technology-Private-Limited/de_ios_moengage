@@ -1,87 +1,80 @@
 import DigiaEngage
-import MoEngageInApps
 import os.log
 
-/// Routes Digia overlay lifecycle events to MoEngage analytics.
+/// Routes a presentation's signals and terminal outcome to MoEngage.
 ///
-/// ## Strategy pattern
-/// Event dispatch is a dedicated responsibility, isolated here so that
-/// `MoEngagePlugin` is **closed for modification** when new event types are
-/// added. Only this class is updated — the plugin orchestrator is unchanged.
-///
-/// Swift's exhaustive `switch` over `DigiaExperienceEvent` provides compile-time
-/// safety: adding a new case causes a compile error here rather than a silent
-/// runtime miss.
-///
-/// ## Dependencies
-/// - `MoEngageInApp.shared`: MoEngage lifecycle APIs (shown / clicked / dismissed).
-/// - `ICampaignCache`: resolves the cached `InAppSelfHandledCampaign` required
-///   by the MoEngage APIs, and evicts entries post-dismiss.
+/// MoEngage infers nothing about a self-handled campaign: shown, clicked and
+/// dismissed are all the app's to report. The v2 split is what decides *when*:
+/// shown and clicked are **signals** — best-effort, mid-flight — while dismissed
+/// rides the terminal path, and the cache entry that every one of these calls
+/// needs is freed there, on **both** outcome arms. That binding is the whole
+/// point: before v2 the entry was evicted only on a dismissal that a dropped
+/// campaign never produced, so every campaign Digia declined leaked its entry —
+/// and the entry holds a MoEngage SDK object, not a string.
+@MainActor
 final class MoEngageEventDispatcher {
+    private let client: MoEngageClient
     private let cache: ICampaignCache
     private let logger = Logger(subsystem: "com.digia.moengage", category: "MoEngageEventDispatcher")
 
-    init(cache: ICampaignCache) {
+    init(client: MoEngageClient, cache: ICampaignCache) {
+        self.client = client
         self.cache = cache
     }
 
-    /// Dispatches event to the correct handler based on payload type ("inline" or in-app).
-    /// Returns true if dispatched, false if campaignId is missing or not cached.
-    @discardableResult
-    func dispatch(_ event: DigiaExperienceEvent, payload: InAppPayload) -> Bool {
-        guard let campaignId = payload.cepContext["campaignId"] else {
-            logger.warning("dispatch: missing campaignId in cepContext")
-            return false
-        }
-        let type = payload.content.type
-        if type == "inline" {
-            return dispatchInlineEvent(event, campaignId: campaignId)
-        } else {
-            return dispatchInAppEvent(event, campaignId: campaignId)
-        }
+    /// The experience became visible.
+    ///
+    /// Inline content has no close affordance and no terminal moment of its own,
+    /// so its shown *is* its dismissed — both are reported here. The cache entry
+    /// still lives until the outcome settles.
+    func campaignShown(_ payload: CEPTriggerPayload) {
+        guard let campaign = campaign(for: payload) else { return }
+        client.markShown(campaign)
+        logger.debug("dispatched: selfHandledShown — campaignId=\(payload.cepCampaignId)")
+
+        guard isInline(payload) else { return }
+        client.markDismissed(campaign)
+        logger.debug("dispatched: selfHandledDismissed (inline, after shown) — campaignId=\(payload.cepCampaignId)")
     }
 
-    /// Handles in-app (dialog/bottom-sheet) events.
-    private func dispatchInAppEvent(_ event: DigiaExperienceEvent, campaignId: String) -> Bool {
-        guard let data = cache.get(campaignId: campaignId) else {
-            logger.warning("dispatchInAppEvent: no cached data for campaignId=\(campaignId)")
-            return false
-        }
-        switch event {
-        case .impressed:
-            MoEngageSDKInApp.sharedInstance.selfHandledShown(campaignInfo: data)
-            logger.debug("dispatched: selfHandledShown — campaignId=\(campaignId)")
-        case .clicked:
-            MoEngageSDKInApp.sharedInstance.selfHandledClicked(campaignInfo: data)
-            logger.debug("dispatched: selfHandledClicked — campaignId=\(campaignId)")
-        case .dismissed:
-            MoEngageSDKInApp.sharedInstance.selfHandledDismissed(campaignInfo: data)
-            cache.remove(campaignId: campaignId)
-            logger.debug("dispatched: selfHandledDismissed — campaignId=\(campaignId)")
-        }
-        return true
+    /// A qualifying interaction with the experience.
+    func campaignClicked(_ payload: CEPTriggerPayload) {
+        guard let campaign = campaign(for: payload) else { return }
+        client.markClicked(campaign)
+        logger.debug("dispatched: selfHandledClicked — campaignId=\(payload.cepCampaignId)")
     }
 
-    /// Handles inline (personalization) events. On Impressed, shown+dismiss+evict; on Clicked, clicked; on Dismissed, no-op.
-    private func dispatchInlineEvent(_ event: DigiaExperienceEvent, campaignId: String) -> Bool {
-        guard let data = cache.get(campaignId: campaignId) else {
-            logger.warning("dispatchInlineEvent: no cached data for campaignId=\(campaignId)")
-            return false
+    /// The presentation settled. Terminal, and reached on **both** outcome arms.
+    ///
+    /// - Parameter displayed: whether the experience reached the screen — the
+    ///   `dismissed` arm of `PresentationOutcome`. A campaign that never
+    ///   displayed has nothing to dismiss, so MoEngage is told nothing; the
+    ///   cache entry goes either way.
+    func experienceEnded(_ payload: CEPTriggerPayload, displayed: Bool) {
+        let campaignId = payload.cepCampaignId
+        defer { cache.remove(campaignId: campaignId) }
+
+        guard let campaign = campaign(for: payload) else { return }
+        // Inline already reported its dismissal at display time.
+        guard displayed, !isInline(payload) else {
+            logger.debug("ended without a dismissal — campaignId=\(campaignId) displayed=\(displayed)")
+            return
         }
-        switch event {
-        case .impressed:
-            MoEngageSDKInApp.sharedInstance.selfHandledShown(campaignInfo: data)
-            logger.debug("dispatched: selfHandledShown (inline) — campaignId=\(campaignId)")
-            MoEngageSDKInApp.sharedInstance.selfHandledDismissed(campaignInfo: data)
-            cache.remove(campaignId: campaignId)
-            logger.debug("dispatched: selfHandledDismissed (inline, after shown) — campaignId=\(campaignId)")
-        case .clicked:
-            MoEngageSDKInApp.sharedInstance.selfHandledClicked(campaignInfo: data)
-            logger.debug("dispatched: selfHandledClicked (inline) — campaignId=\(campaignId)")
-        case .dismissed:
-            // No-op: already handled on impressed
-            break
+        client.markDismissed(campaign)
+        logger.debug("dispatched: selfHandledDismissed — campaignId=\(campaignId)")
+    }
+
+    // MARK: - Helpers
+
+    private func campaign(for payload: CEPTriggerPayload) -> MoEngageSelfHandledCampaign? {
+        guard let campaign = cache.get(campaignId: payload.cepCampaignId) else {
+            logger.warning("no cached campaign for campaignId=\(payload.cepCampaignId)")
+            return nil
         }
-        return true
+        return campaign
+    }
+
+    private func isInline(_ payload: CEPTriggerPayload) -> Bool {
+        (payload.cepMetadata["type"] ?? "inline") == "inline"
     }
 }

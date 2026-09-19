@@ -13,11 +13,10 @@ let package = Package(
         ),
     ],
     dependencies: [
-        // Digia Engage iOS SDK
-        .package(
-            url: "https://github.com/Digia-Technology-Private-Limited/digia_engage_iOS.git",
-            from: "1.0.0-beta.2"
-        ),
+        // The sibling checkout, not a version tag: the published constraint predates
+        // core's CEP v2 surface and resolves a core this package can no longer compile
+        // against. Repoint at a tag once core publishes one carrying that contract.
+        .package(path: "../core"),
         // MoEngage iOS SDK
         .package(
             url: "https://github.com/moengage/MoEngage-iOS-SDK.git",
@@ -28,10 +27,17 @@ let package = Package(
         .target(
             name: "DigiaMoEngage",
             dependencies: [
-                .product(name: "DigiaEngage", package: "digia_engage_iOS"),
+                .product(name: "DigiaEngage", package: "core"),
                 .product(name: "MoEngageInApps", package: "MoEngage-iOS-SDK"),
             ],
             path: "Sources/DigiaMoEngage"
+        ),
+        // The seam's whole point: the plugin runs here with a fake MoEngageClient,
+        // so no test needs a live MoEngage SDK (spec §10.5, plan N2 "seam rule").
+        .testTarget(
+            name: "DigiaMoEngageTests",
+            dependencies: ["DigiaMoEngage"],
+            path: "Tests/DigiaMoEngageTests"
         ),
     ]
 )
