@@ -132,8 +132,17 @@ public final class MoEngagePlugin: DigiaCEPPluginV2 {
         // tasks awaiting those outcomes have not necessarily run yet. This is
         // the last moment the plugin can free MoEngage's side and its own cache.
         for (campaignId, presentation) in live {   // a snapshot: `finish` mutates `live`
+            // Read the outcome rather than assuming `false`: `cancel()` settles on the main
+            // actor, inline, so by now the true terminal result is here. If core had already
+            // settled this presentation as `dismissed` and only its awaiting task had yet to
+            // run, hardcoding `false` silently dropped the final CEP marking for a campaign
+            // the user really did see.
             presentation.cancel()
-            finish(campaignId: campaignId, trigger: presentation.trigger, displayed: false)
+            finish(
+                campaignId: campaignId,
+                trigger: presentation.trigger,
+                displayed: presentation.outcome.settledValue.map(didDisplay) ?? false
+            )
         }
         live.removeAll()
 

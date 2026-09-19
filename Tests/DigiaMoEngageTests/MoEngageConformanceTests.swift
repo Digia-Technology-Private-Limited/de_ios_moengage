@@ -118,15 +118,15 @@ struct MoEngageConformanceTests {
         h.plugin.detach()
         await drainMainActor()
 
-        // Recorded while writing this, not fixed here: the iOS backstop calls
-        // its terminal funnel with `displayed: false` regardless of what the
-        // presentation actually did, so a campaign that *was* on screen loses
-        // its final CEP marking when the backstop wins this race. The release
-        // itself is never lost, which is why this row asserts the release. See
-        // the N3 report.
-
         #expect(h.cache.count == 0, "unregistering must free the entry, and free it once")
-        #expect(h.client.dismissed.count <= 1, "and must never mark the same campaign twice")
+        // Exactly one, not "at most one": a campaign that was on screen must still reach
+        // MoEngage with its dismissal. The backstop used to pass `displayed: false`
+        // unconditionally, which lost that marking whenever it won the race above — the
+        // release survived, the marking did not.
+        #expect(
+            h.client.dismissed == ["camp_1"],
+            "a displayed campaign must be marked dismissed exactly once, even when the detach backstop is what settles it"
+        )
         #expect(
             h.core.presentation.outcome.settledValue
                 == .dismissed(reason: .pluginDetached, completed: false)
