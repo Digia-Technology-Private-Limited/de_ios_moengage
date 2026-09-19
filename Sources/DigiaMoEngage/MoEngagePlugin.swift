@@ -34,7 +34,7 @@ import os.log
 ///   `ICampaignPayloadMapper`, never on `MoEngageSDKInApp.sharedInstance`. That
 ///   is what lets the whole plugin run under XCTest with a fake client.
 @MainActor
-public final class MoEngagePlugin: DigiaCEPPluginV2 {
+public final class MoEngagePlugin: DigiaCEPPlugin {
 
     // MARK: - Public
 
@@ -104,7 +104,7 @@ public final class MoEngagePlugin: DigiaCEPPluginV2 {
         }
     }
 
-    // MARK: - DigiaCEPPluginV2
+    // MARK: - DigiaCEPPlugin
 
     public func attach(host: DigiaCEPHost) {
         guard self.host == nil else { return }
@@ -153,7 +153,7 @@ public final class MoEngagePlugin: DigiaCEPPluginV2 {
         logger.info("\(self.id): detached")
     }
 
-    /// Not part of ``DigiaCEPPluginV2`` — a plugin-level diagnostic a host app
+    /// Not part of ``DigiaCEPPlugin`` — a plugin-level diagnostic a host app
     /// can call directly.
     public func healthCheck() -> DiagnosticReport {
         guard host != nil else {
