@@ -2,42 +2,6 @@
 @testable import DigiaMoEngage
 import Foundation
 
-/// Stands in for Digia core.
-///
-/// Built on the real ``PresentationController``, so the contract's own
-/// guarantees — exactly-once settlement, no signals after the outcome,
-/// `holdReleased` settling at or before `outcome` — hold in these tests rather
-/// than being re-implemented by a fake that could drift from them.
-@MainActor
-final class FakeCEPHost: DigiaCEPHost {
-    /// When set, `deliver` returns an already-settled presentation.
-    var syncDrop: DropReason?
-
-    private(set) var delivered: [CEPTriggerPayload] = []
-    private(set) var controllers: [PresentationController] = []
-    private var nextId = 0
-
-    // `nonisolated`: the plugin suites use a FakeCEPHost as a default argument,
-    // which Swift evaluates outside the main actor.
-    nonisolated init(syncDrop: DropReason? = nil) {
-        self.syncDrop = syncDrop
-    }
-
-    func deliver(_ trigger: CEPTriggerPayload) -> CampaignPresentation {
-        delivered.append(trigger)
-        nextId += 1
-        let controller = PresentationController(id: "p-\(nextId)", trigger: trigger)
-        controllers.append(controller)
-        if let syncDrop {
-            controller.settle(.dropped(reason: syncDrop, detail: nil))
-        }
-        return controller.presentation
-    }
-
-    /// The controller for the most recent delivery — the test's handle on core.
-    var last: PresentationController { controllers[controllers.count - 1] }
-}
-
 /// A MoEngage self-handled campaign, without MoEngage.
 ///
 /// This is what the seam buys: the real `MoEngageInAppSelfHandledCampaign`
@@ -83,6 +47,10 @@ final class FakeMoEngageClient: MoEngageClient {
 
     private var listener: (@MainActor (MoEngageSelfHandledCampaign) -> Void)?
 
+    /// Runs from inside ``markDismissed(_:)``, so a test can make MoEngage's
+    /// own terminal call misbehave (scenario C5).
+    var onMarkDismissed: ((MoEngageSelfHandledCampaign) -> Void)?
+
     /// Pushes a campaign the way MoEngage's self-handled delegate would.
     func emit(_ campaign: MoEngageSelfHandledCampaign) { listener?(campaign) }
 
@@ -103,14 +71,8 @@ final class FakeMoEngageClient: MoEngageClient {
 
     func markClicked(_ campaign: MoEngageSelfHandledCampaign) { clicked.append(campaign.campaignId) }
 
-    func markDismissed(_ campaign: MoEngageSelfHandledCampaign) { dismissed.append(campaign.campaignId) }
-}
-
-/// Lets main-actor continuations resumed by a settlement actually run.
-///
-/// The plugin binds its terminal work to `await presentation.outcome.value`, so
-/// a settlement made by a test resumes a task that runs on the *next* main-actor
-/// turn. Synchronous drops and plugin-initiated terminations do not need this.
-func drainMainActor(_ turns: Int = 5) async {
-    for _ in 0..<turns { await Task.yield() }
+    func markDismissed(_ campaign: MoEngageSelfHandledCampaign) {
+        dismissed.append(campaign.campaignId)
+        onMarkDismissed?(campaign)
+    }
 }
