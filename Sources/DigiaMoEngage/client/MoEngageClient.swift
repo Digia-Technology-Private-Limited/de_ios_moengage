@@ -100,7 +100,15 @@ public final class MoEngageSdkClient: MoEngageClient {
 
 /// Bridges `MoEngageInAppNativeDelegate` — an Obj-C protocol requiring
 /// `NSObjectProtocol` — to a closure.
-private final class SelfHandledDelegateAdapter: NSObject, MoEngageInAppNativeDelegate {
+///
+/// `@unchecked Sendable` is load-bearing and safe: the only stored property is a
+/// `let` set in `init` and never mutated, so there is no shared mutable state to
+/// race on. MoEngage 10.x delivers `selfHandledInAppTriggered` from a nonisolated
+/// context, and hopping to the main actor from there means capturing `self` —
+/// which Swift 6 rejects for a non-Sendable class ("sending 'self' risks causing
+/// data races"). Under MoEngage 9.x the callback's isolation let this compile
+/// without the annotation; the behaviour is unchanged either way.
+private final class SelfHandledDelegateAdapter: NSObject, MoEngageInAppNativeDelegate, @unchecked Sendable {
     private let onCampaign: @MainActor (MoEngageSelfHandledCampaign) -> Void
 
     init(onCampaign: @escaping @MainActor (MoEngageSelfHandledCampaign) -> Void) {

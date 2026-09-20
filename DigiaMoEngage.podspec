@@ -43,6 +43,6 @@ Pod::Spec.new do |s|
   # Sources/DigiaMoEngage imports both MoEngageCore and MoEngageInApps directly,
   # so both are declared here rather than left to resolve transitively through
   # MoEngageInApps's own (unconstrained) dependency on MoEngageCore.
-  s.dependency 'MoEngageCore', '>= 9.18.0', '< 10.0.0'
-  s.dependency 'MoEngageInApps', '>= 6.01.0', '< 7.00.0'
+  s.dependency 'MoEngageCore', '>= 9.18.0', '< 11.0.0'
+  s.dependency 'MoEngageInApps', '>= 6.01.0', '< 8.00.0'
 end
