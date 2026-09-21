@@ -24,17 +24,19 @@ final class MoEngageEventDispatcher {
 
     /// The experience became visible.
     ///
-    /// Inline content has no close affordance and no terminal moment of its own,
-    /// so its shown *is* its dismissed — both are reported here. The cache entry
-    /// still lives until the outcome settles.
+    /// Shown only. Inline content used to be marked dismissed here too, on the
+    /// reasoning that it has no close affordance and so no terminal moment of
+    /// its own. It does: ``CampaignPresentation/outcome`` always settles, and
+    /// ``experienceEnded(_:displayed:)`` binds to it. Reporting a dismissal
+    /// while the campaign is still on screen told MoEngage something untrue,
+    /// and it rested on the marketer typing `"type":"inline"` into the MoEngage
+    /// payload — a field Digia has no concept of, which this plugin and its
+    /// Kotlin twin defaulted opposite ways when it was absent. The Flutter
+    /// plugin never had the branch.
     func campaignShown(_ payload: CEPTriggerPayload) {
         guard let campaign = campaign(for: payload) else { return }
         client.markShown(campaign)
         logger.debug("dispatched: selfHandledShown — campaignId=\(payload.cepCampaignId)")
-
-        guard isInline(payload) else { return }
-        client.markDismissed(campaign)
-        logger.debug("dispatched: selfHandledDismissed (inline, after shown) — campaignId=\(payload.cepCampaignId)")
     }
 
     /// A qualifying interaction with the experience.
@@ -55,8 +57,7 @@ final class MoEngageEventDispatcher {
         defer { cache.remove(campaignId: campaignId) }
 
         guard let campaign = campaign(for: payload) else { return }
-        // Inline already reported its dismissal at display time.
-        guard displayed, !isInline(payload) else {
+        guard displayed else {
             logger.debug("ended without a dismissal — campaignId=\(campaignId) displayed=\(displayed)")
             return
         }
@@ -72,9 +73,5 @@ final class MoEngageEventDispatcher {
             return nil
         }
         return campaign
-    }
-
-    private func isInline(_ payload: CEPTriggerPayload) -> Bool {
-        (payload.cepMetadata["type"] ?? "inline") == "inline"
     }
 }

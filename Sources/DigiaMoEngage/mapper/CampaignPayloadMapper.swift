@@ -44,7 +44,6 @@ public struct CampaignPayloadMapper: ICampaignPayloadMapper {
         let cepMetadata: [String: String] = [
             "campaignId":   campaignId,
             "campaignName": campaignName,
-            "type":         stringValue(payloadMap["type"]) ?? "inline",
         ]
 
         var variables: [String: String] = [:]

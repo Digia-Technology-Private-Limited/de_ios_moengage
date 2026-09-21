@@ -117,20 +117,23 @@ struct MoEngagePluginTests {
         #expect(h.client.clicked == ["camp_1"])
     }
 
-    @Test("inline reports shown and dismissed together, with no duplicate at the outcome")
-    func inlineDismissesAtDisplay() async {
+    @Test("a campaign stays open until its presentation settles")
+    func dismissalWaitsForTheOutcome() async {
         let h = Harness()
         h.client.emit(FakeCampaign.inline())
 
         h.core.markDisplaying()
         #expect(h.client.shown == ["camp_inline"])
-        #expect(h.client.dismissed == ["camp_inline"], "inline has no close affordance")
+        // `"type":"inline"` once bought this campaign an early dismissal. Digia has no such
+        // concept, and marking a campaign dismissed while it is on screen told MoEngage
+        // something untrue — the outcome is the only thing that ends a campaign now.
+        #expect(h.client.dismissed.isEmpty, "still on screen — nothing to dismiss yet")
 
         h.core.settle(.dismissed(reason: .screenExit, completed: true))
         await drainMainActor()
 
-        #expect(h.client.dismissed == ["camp_inline"], "no duplicate dismissal")
-        #expect(h.cache.count == 0, "the entry still lives until the outcome")
+        #expect(h.client.dismissed == ["camp_inline"])
+        #expect(h.cache.count == 0, "the entry dies with the presentation")
     }
 
     // MARK: - The pre-attach buffer

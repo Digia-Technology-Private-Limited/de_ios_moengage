@@ -21,16 +21,14 @@ final class FakeCampaign: MoEngageSelfHandledCampaign {
     static func modal(campaignId: String = "camp_1", campaignKey: String = "onboarding_tip") -> FakeCampaign {
         FakeCampaign(
             campaignId: campaignId,
-            campaignContent: #"{"type":"dialog","digiaKey":"\#(campaignKey)"}"#
+            campaignContent: #"{"digiaKey":"\#(campaignKey)"}"#
         )
     }
 
-    /// An inline campaign — no close affordance, so its shown is its dismissed.
+    /// An inline campaign. Identical to any other from MoEngage's side — what it
+    /// renders as is Digia's business, and the CEP payload says nothing about it.
     static func inline(campaignId: String = "camp_inline") -> FakeCampaign {
-        FakeCampaign(
-            campaignId: campaignId,
-            campaignContent: #"{"type":"inline","digiaKey":"home_banner"}"#
-        )
+        FakeCampaign(campaignId: campaignId, campaignContent: #"{"digiaKey":"home_banner"}"#)
     }
 }
 
