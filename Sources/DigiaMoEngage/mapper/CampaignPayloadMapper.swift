@@ -81,7 +81,7 @@ public struct CampaignPayloadMapper: ICampaignPayloadMapper {
     private func resolveVariables(_ payloadMap: [String: JSONValue]) -> [String: String]? {
         var variables: [String: String] = [:]
         for name in ["variables", "args"] {
-            guard case let .object(obj)? = payloadMap[name] else { continue }
+            guard let obj = asObject(payloadMap[name]) else { continue }
             for (key, jsonValue) in obj {
                 if let value = flattenedString(jsonValue), !value.isEmpty {
                     variables[key] = value
@@ -90,6 +90,27 @@ public struct CampaignPayloadMapper: ICampaignPayloadMapper {
             break
         }
         return variables.isEmpty ? nil : variables
+    }
+
+    /// An authored object, however the dashboard stored it: already parsed, or as JSON text.
+    ///
+    /// A marketer who pastes a variables blob into a string field gets an object all the same —
+    /// accepting only a parsed object drops every variable on that campaign, silently. The
+    /// WebEngage mappers take both for the same reason.
+    private func asObject(_ value: JSONValue?) -> [String: JSONValue]? {
+        switch value {
+        case let .object(obj):
+            return obj
+        case let .string(text):
+            guard let data = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                .data(using: .utf8),
+                let decoded = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                !decoded.isEmpty
+            else { return nil }
+            return decoded.mapValues { jsonValueFrom(any: $0) }
+        default:
+            return nil
+        }
     }
 
     private func stringValue(_ value: JSONValue?) -> String? {

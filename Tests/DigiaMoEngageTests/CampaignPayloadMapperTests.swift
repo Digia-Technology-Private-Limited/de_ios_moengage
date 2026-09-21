@@ -96,6 +96,15 @@ struct CampaignPayloadMapperTests {
         #expect(payload.variables == ["count": "1", "price": "2.5", "onSale": "true"])
     }
 
+    @Test("reads variables the dashboard could only store as text")
+    func variablesAsText() {
+        // A marketer who pastes the blob into a string field gets an object all the same.
+        let payload = mapper.map(
+            campaign(#"{"digiaKey":"k","variables":"{\"name\":\"Priya\",\"count\":5}"}"#))
+
+        #expect(payload.variables == ["name": "Priya", "count": "5"])
+    }
+
     @Test("drops values that cannot be interpolated")
     func dropsNonScalars() {
         let payload = mapper.map(
