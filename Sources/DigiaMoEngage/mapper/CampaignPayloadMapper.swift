@@ -7,7 +7,7 @@ import Foundation
 /// - parsing the marketer-authored JSON from the campaign's self-handled content,
 /// - resolving `campaignKey` — the key core looks the Digia campaign up by — from that JSON,
 /// - carrying the MoEngage identifiers in `cepMetadata`, and
-/// - flattening the marketer-authored `args` object into `variables`.
+/// - flattening the marketer-authored `variables` object into `variables`.
 ///
 /// Parsing failures are gracefully degraded — an empty content map is used
 /// so the campaign still reaches the rendering engine.
@@ -46,20 +46,13 @@ public struct CampaignPayloadMapper: ICampaignPayloadMapper {
             "campaignName": campaignName,
         ]
 
-        var variables: [String: String] = [:]
-        if let value = payloadMap["args"], case let .object(obj) = value {
-            for (key, jsonValue) in obj {
-                if let s = flattenedString(jsonValue) {
-                    variables[key] = s
-                }
-            }
-        }
+        let variables = resolveVariables(payloadMap)
 
         return CEPTriggerPayload(
             cepCampaignId: campaignId,
             campaignKey: resolveCampaignKey(payloadMap) ?? campaignId,
             cepMetadata: cepMetadata,
-            variables: variables.isEmpty ? nil : variables
+            variables: variables
         )
     }
 
@@ -77,6 +70,26 @@ public struct CampaignPayloadMapper: ICampaignPayloadMapper {
             }
         }
         return nil
+    }
+
+    /// Reads the runtime variables to interpolate into the campaign config.
+    ///
+    /// `args` is the older spelling, kept because campaigns authored against it are live; the
+    /// Flutter plugin accepts the same pair. The first of the two that is actually an object
+    /// wins — a marketer who wrote `variables` as something else gets the fallback rather than
+    /// nothing, which is the only place this differs from Dart.
+    private func resolveVariables(_ payloadMap: [String: JSONValue]) -> [String: String]? {
+        var variables: [String: String] = [:]
+        for name in ["variables", "args"] {
+            guard case let .object(obj)? = payloadMap[name] else { continue }
+            for (key, jsonValue) in obj {
+                if let value = flattenedString(jsonValue), !value.isEmpty {
+                    variables[key] = value
+                }
+            }
+            break
+        }
+        return variables.isEmpty ? nil : variables
     }
 
     private func stringValue(_ value: JSONValue?) -> String? {
@@ -101,12 +114,13 @@ public struct CampaignPayloadMapper: ICampaignPayloadMapper {
         switch value {
         case let s as String:
             return .string(s)
-        case let b as Bool:
-            return .bool(b)
-        case let i as Int:
-            return .int(i)
-        case let d as Double:
-            return .double(d)
+        // Every JSON number arrives as an NSNumber, and an NSNumber bridges to `Bool` as
+        // readily as to `Int` — `case let b as Bool` matches a plain `1` and would interpolate
+        // an authored count as "true". Only the CFBoolean singletons are really booleans.
+        case let n as NSNumber:
+            if CFGetTypeID(n) == CFBooleanGetTypeID() { return .bool(n.boolValue) }
+            let d = n.doubleValue
+            return d == d.rounded() && abs(d) < 1e15 ? .int(n.intValue) : .double(d)
         case let arr as [Any]:
             return .array(arr.map { jsonValueFrom(any: $0) })
         case let obj as [String: Any]:

@@ -71,4 +71,44 @@ struct CampaignPayloadMapperTests {
         #expect(mapper.map(campaign(#"{"digiaKey":"   "}"#)).campaignKey == "camp_1")
         #expect(mapper.map(campaign(#"{"digiaKey":42}"#)).campaignKey == "camp_1")
     }
+
+    // MARK: - Variables
+
+    @Test("reads runtime variables, preferring variables over the older args")
+    func variablesBeatArgs() {
+        let both = campaign(
+            #"{"digiaKey":"k","variables":{"name":"Priya"},"args":{"name":"Stale"}}"#)
+        let argsOnly = campaign(#"{"digiaKey":"k","args":{"name":"Priya"}}"#)
+
+        #expect(mapper.map(both).variables == ["name": "Priya"])
+        #expect(
+            mapper.map(argsOnly).variables == ["name": "Priya"],
+            "args is the older spelling, still live")
+    }
+
+    @Test("renders a number as the integer the marketer typed")
+    func numbersAreNotBooleans() {
+        // Every JSON number arrives as an NSNumber, and `1 as? Bool` succeeds — the naive
+        // switch answered "true" for an authored count of 1.
+        let payload = mapper.map(
+            campaign(#"{"digiaKey":"k","variables":{"count":1,"price":2.5,"onSale":true}}"#))
+
+        #expect(payload.variables == ["count": "1", "price": "2.5", "onSale": "true"])
+    }
+
+    @Test("drops values that cannot be interpolated")
+    func dropsNonScalars() {
+        let payload = mapper.map(
+            campaign(
+                #"{"digiaKey":"k","variables":{"tags":["a"],"nested":{"x":1},"blank":"","gone":null,"keep":"y"}}"#
+            ))
+
+        #expect(payload.variables == ["keep": "y"])
+    }
+
+    @Test("carries no variables when the marketer authored none")
+    func noVariables() {
+        #expect(mapper.map(campaign(#"{"digiaKey":"k"}"#)).variables == nil)
+        #expect(mapper.map(campaign(#"{"variables":"oops"}"#)).variables == nil)
+    }
 }
