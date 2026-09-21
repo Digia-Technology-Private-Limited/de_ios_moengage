@@ -6,7 +6,7 @@ import Foundation
 /// Translates a MoEngage self-handled campaign into a Digia `CEPTriggerPayload` by:
 /// - parsing the marketer-authored JSON from the campaign's self-handled content,
 /// - resolving `campaignKey` — the key core looks the Digia campaign up by — from that JSON,
-/// - flattening `type`/`viewId`/`command`/campaign metadata into `cepMetadata`, and
+/// - carrying the MoEngage identifiers in `cepMetadata`, and
 /// - flattening the marketer-authored `args` object into `variables`.
 ///
 /// Parsing failures are gracefully degraded — an empty content map is used
@@ -41,18 +41,11 @@ public struct CampaignPayloadMapper: ICampaignPayloadMapper {
             }
         }
 
-        let type         = stringValue(payloadMap["type"]) ?? "inline"
-        let placementKey = stringValue(payloadMap["placementKey"])
-        let viewId       = stringValue(payloadMap["viewId"])
-        let command      = stringValue(payloadMap["command"])
-
-        var cepMetadata: [String: String] = [
+        let cepMetadata: [String: String] = [
             "campaignId":   campaignId,
             "campaignName": campaignName,
-            "type":         type,
+            "type":         stringValue(payloadMap["type"]) ?? "inline",
         ]
-        if let viewId { cepMetadata["viewId"] = viewId }
-        if let command { cepMetadata["command"] = command }
 
         var variables: [String: String] = [:]
         if let value = payloadMap["args"], case let .object(obj) = value {
@@ -65,7 +58,7 @@ public struct CampaignPayloadMapper: ICampaignPayloadMapper {
 
         return CEPTriggerPayload(
             cepCampaignId: campaignId,
-            campaignKey: resolveCampaignKey(payloadMap, legacy: placementKey) ?? campaignId,
+            campaignKey: resolveCampaignKey(payloadMap) ?? campaignId,
             cepMetadata: cepMetadata,
             variables: variables.isEmpty ? nil : variables
         )
@@ -75,16 +68,7 @@ public struct CampaignPayloadMapper: ICampaignPayloadMapper {
 
     /// Reads the Digia campaign key out of the marketer JSON, trying `campaignKeyNames` in
     /// priority order. Returns nil when the marketer typed no key at all.
-    ///
-    /// `legacy` is the campaign's `placementKey`, which releases before this one used as the
-    /// coupling key. It is a different thing — a placement is the inline slot a campaign lands
-    /// in, and core reads that from the campaign's own config once it has found it — but a
-    /// campaign authored against the old behaviour is live in somebody's dashboard, and
-    /// dropping it here would break it. It stays as the last resort, below every real spelling.
-    private func resolveCampaignKey(
-        _ payloadMap: [String: JSONValue],
-        legacy placementKey: String?
-    ) -> String? {
+    private func resolveCampaignKey(_ payloadMap: [String: JSONValue]) -> String? {
         for name in Self.campaignKeyNames {
             if let value = stringValue(payloadMap[name])?
                 .trimmingCharacters(in: .whitespacesAndNewlines),
@@ -93,10 +77,7 @@ public struct CampaignPayloadMapper: ICampaignPayloadMapper {
                 return value
             }
         }
-        guard let legacy = placementKey?.trimmingCharacters(in: .whitespacesAndNewlines),
-            !legacy.isEmpty
-        else { return nil }
-        return legacy
+        return nil
     }
 
     private func stringValue(_ value: JSONValue?) -> String? {

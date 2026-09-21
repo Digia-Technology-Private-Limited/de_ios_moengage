@@ -18,10 +18,10 @@ final class FakeCampaign: MoEngageSelfHandledCampaign {
     }
 
     /// A modal campaign — has a terminal moment of its own.
-    static func modal(campaignId: String = "camp_1", placementKey: String = "onboarding_tip") -> FakeCampaign {
+    static func modal(campaignId: String = "camp_1", campaignKey: String = "onboarding_tip") -> FakeCampaign {
         FakeCampaign(
             campaignId: campaignId,
-            campaignContent: #"{"type":"dialog","placementKey":"\#(placementKey)","viewId":"v1"}"#
+            campaignContent: #"{"type":"dialog","digiaKey":"\#(campaignKey)"}"#
         )
     }
 
@@ -29,7 +29,7 @@ final class FakeCampaign: MoEngageSelfHandledCampaign {
     static func inline(campaignId: String = "camp_inline") -> FakeCampaign {
         FakeCampaign(
             campaignId: campaignId,
-            campaignContent: #"{"type":"inline","placementKey":"home_banner","viewId":"v2"}"#
+            campaignContent: #"{"type":"inline","digiaKey":"home_banner"}"#
         )
     }
 }

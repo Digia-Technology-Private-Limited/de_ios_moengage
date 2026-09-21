@@ -11,8 +11,7 @@ import Testing
 /// only visible in a log line far downstream. The key the marketer typed lives in the
 /// self-handled JSON, and the aliases below are the same set CleverTap accepts.
 ///
-/// Twin of `CampaignPayloadMapperTest.kt` in the Android plugin, with one test Kotlin has no
-/// need of: this mapper once resolved `placementKey` as the key, and that has to keep working.
+/// Twin of `CampaignPayloadMapperTest.kt` in the Android plugin.
 struct CampaignPayloadMapperTests {
 
     private let mapper = CampaignPayloadMapper()
@@ -53,19 +52,6 @@ struct CampaignPayloadMapperTests {
     }
 
     // MARK: - The fallbacks: a total mapper, never a throw
-
-    @Test("still resolves placementKey, which earlier releases coupled on")
-    func legacyPlacementKey() {
-        #expect(mapper.map(campaign(#"{"type":"dialog","placementKey":"promo"}"#)).campaignKey
-            == "promo")
-    }
-
-    @Test("a real spelling outranks placementKey")
-    func realKeyBeatsLegacy() {
-        #expect(
-            mapper.map(campaign(#"{"placementKey":"home_banner","digiaKey":"welcome"}"#))
-                .campaignKey == "welcome")
-    }
 
     @Test("falls back to the MoEngage id when the marketer typed no key")
     func noKeyAtAll() {

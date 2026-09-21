@@ -175,13 +175,13 @@ struct MoEngageConformanceTests {
     @Test("C6 — re-trigger the same campaignKey while the first is live: two presentations, two releases")
     func c6ReTriggerSameCampaignKey() async {
         // Two MoEngage campaigns pointing at one Digia campaign: same
-        // `campaignKey` (the placementKey), different `cepCampaignId`. The plugin
+        // `campaignKey`, different `cepCampaignId`. The plugin
         // keys its bookkeeping by campaign id, so the two must not collide — and
         // identity is `CampaignPresentation.id` regardless, which is what makes
         // the CleverTap form of this collision harmless too.
         let h = Harness()
-        h.client.emit(FakeCampaign.modal(campaignId: "camp_a", placementKey: "promo"))
-        h.client.emit(FakeCampaign.modal(campaignId: "camp_b", placementKey: "promo"))
+        h.client.emit(FakeCampaign.modal(campaignId: "camp_a", campaignKey: "promo"))
+        h.client.emit(FakeCampaign.modal(campaignId: "camp_b", campaignKey: "promo"))
 
         #expect(h.host.delivered.count == 2)
         #expect(h.host.delivered.map(\.campaignKey) == ["promo", "promo"])
