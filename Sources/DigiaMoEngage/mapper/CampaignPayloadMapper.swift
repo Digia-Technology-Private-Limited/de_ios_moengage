@@ -5,8 +5,7 @@ import Foundation
 ///
 /// Translates a MoEngage self-handled campaign into a Digia `CEPTriggerPayload` by:
 /// - parsing the marketer-authored JSON from the campaign's self-handled content,
-/// - using its `placementKey` (falling back to the campaign id) as `campaignKey` — the
-///   slot/placement identifier CEPTriggerPayload uses to look up the Digia campaign config,
+/// - resolving `campaignKey` — the key core looks the Digia campaign up by — from that JSON,
 /// - flattening `type`/`viewId`/`command`/campaign metadata into `cepMetadata`, and
 /// - flattening the marketer-authored `args` object into `variables`.
 ///
@@ -14,6 +13,19 @@ import Foundation
 /// so the campaign still reaches the rendering engine.
 public struct CampaignPayloadMapper: ICampaignPayloadMapper {
     public init() {}
+
+    /// Accepted spellings of the campaign key in the marketer JSON, in priority order.
+    ///
+    /// Dashboard authors type this by hand, so every plausible casing and separator is
+    /// accepted rather than silently dropping the campaign. Deliberately identical to
+    /// `CleverTapPayloadMapper.campaignKeyNames` and to the Kotlin twin — a marketer who
+    /// learned one spelling on one CEP must not have to relearn it on another.
+    public static let campaignKeyNames = [
+        "digiaKey", "digia_key", "digia-key",
+        "campaignKey", "campaign_key", "campaign-key",
+        "digiaCampaign", "digia_campaign", "digia-campaign",
+        "digiaCampaignKey", "digia_campaign_key", "digia-campaign-key",
+    ]
 
     public func map(_ campaign: MoEngageSelfHandledCampaign) -> CEPTriggerPayload {
         let campaignId   = campaign.campaignId
@@ -53,13 +65,39 @@ public struct CampaignPayloadMapper: ICampaignPayloadMapper {
 
         return CEPTriggerPayload(
             cepCampaignId: campaignId,
-            campaignKey: placementKey ?? campaignId,
+            campaignKey: resolveCampaignKey(payloadMap, legacy: placementKey) ?? campaignId,
             cepMetadata: cepMetadata,
             variables: variables.isEmpty ? nil : variables
         )
     }
 
     // MARK: - Private
+
+    /// Reads the Digia campaign key out of the marketer JSON, trying `campaignKeyNames` in
+    /// priority order. Returns nil when the marketer typed no key at all.
+    ///
+    /// `legacy` is the campaign's `placementKey`, which releases before this one used as the
+    /// coupling key. It is a different thing — a placement is the inline slot a campaign lands
+    /// in, and core reads that from the campaign's own config once it has found it — but a
+    /// campaign authored against the old behaviour is live in somebody's dashboard, and
+    /// dropping it here would break it. It stays as the last resort, below every real spelling.
+    private func resolveCampaignKey(
+        _ payloadMap: [String: JSONValue],
+        legacy placementKey: String?
+    ) -> String? {
+        for name in Self.campaignKeyNames {
+            if let value = stringValue(payloadMap[name])?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+                !value.isEmpty
+            {
+                return value
+            }
+        }
+        guard let legacy = placementKey?.trimmingCharacters(in: .whitespacesAndNewlines),
+            !legacy.isEmpty
+        else { return nil }
+        return legacy
+    }
 
     private func stringValue(_ value: JSONValue?) -> String? {
         guard case .string(let s) = value else { return nil }
