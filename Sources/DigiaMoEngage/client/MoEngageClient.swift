@@ -70,11 +70,17 @@ public final class MoEngageSdkClient: MoEngageClient {
     }
 
     public func fetchSelfHandledInApp() {
-        MoEngageSDKInApp.sharedInstance.getSelfHandledInApp { [weak self] campaign, _ in
-            guard let campaign else { return }
+        let adapter = delegateAdapter
+        Self.requestSelfHandledInApp(adapter: adapter)
+    }
+
+    nonisolated private static func requestSelfHandledInApp(adapter: SelfHandledDelegateAdapter?) {
+        MoEngageSDKInApp.sharedInstance.getSelfHandledInApp { campaignInfo, _ in
+            guard let campaignInfo else { return }
             // MoEngage completes on an unspecified queue, and its campaign type
             // is not Sendable — hop before anything else touches it.
-            onMainActor { self?.delegateAdapter?.deliver(campaign) }
+            nonisolated(unsafe) let campaign = campaignInfo
+            onMainActor { adapter?.deliver(campaign) }
         }
     }
 
