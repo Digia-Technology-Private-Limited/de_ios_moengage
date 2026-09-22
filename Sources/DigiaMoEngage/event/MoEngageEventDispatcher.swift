@@ -1,5 +1,4 @@
 import DigiaEngage
-import os.log
 
 /// Routes a presentation's signals and terminal outcome to MoEngage.
 ///
@@ -15,7 +14,7 @@ import os.log
 final class MoEngageEventDispatcher {
     private let client: MoEngageClient
     private let cache: ICampaignCache
-    private let logger = Logger(subsystem: "com.digia.moengage", category: "MoEngageEventDispatcher")
+    private let log = DigiaLogger("ME")
 
     init(client: MoEngageClient, cache: ICampaignCache) {
         self.client = client
@@ -35,15 +34,15 @@ final class MoEngageEventDispatcher {
     /// plugin never had the branch.
     func campaignShown(_ payload: CEPTriggerPayload) {
         guard let campaign = campaign(for: payload) else { return }
+        log.i("CEP impression marked (selfHandledShown)", campaign: payload.campaignKey)
         client.markShown(campaign)
-        logger.debug("dispatched: selfHandledShown — campaignId=\(payload.cepCampaignId)")
     }
 
     /// A qualifying interaction with the experience.
     func campaignClicked(_ payload: CEPTriggerPayload) {
         guard let campaign = campaign(for: payload) else { return }
+        log.i("CEP click marked (selfHandledClicked)", campaign: payload.campaignKey)
         client.markClicked(campaign)
-        logger.debug("dispatched: selfHandledClicked — campaignId=\(payload.cepCampaignId)")
     }
 
     /// The presentation settled. Terminal, and reached on **both** outcome arms.
@@ -58,18 +57,18 @@ final class MoEngageEventDispatcher {
 
         guard let campaign = campaign(for: payload) else { return }
         guard displayed else {
-            logger.debug("ended without a dismissal — campaignId=\(campaignId) displayed=\(displayed)")
+            log.d("Nothing dispatched — the campaign never displayed (cepId=\(campaignId))", campaign: payload.campaignKey)
             return
         }
+        log.i("CEP dismiss marked (selfHandledDismissed)", campaign: payload.campaignKey)
         client.markDismissed(campaign)
-        logger.debug("dispatched: selfHandledDismissed — campaignId=\(campaignId)")
     }
 
     // MARK: - Helpers
 
     private func campaign(for payload: CEPTriggerPayload) -> MoEngageSelfHandledCampaign? {
         guard let campaign = cache.get(campaignId: payload.cepCampaignId) else {
-            logger.warning("no cached campaign for campaignId=\(payload.cepCampaignId)")
+            log.w("No cached campaign for cepId=\(payload.cepCampaignId)", campaign: payload.campaignKey)
             return nil
         }
         return campaign
