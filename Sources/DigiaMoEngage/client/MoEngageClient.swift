@@ -62,6 +62,9 @@ public final class MoEngageSdkClient: MoEngageClient {
     public func setSelfHandledListener(_ listener: (@MainActor (MoEngageSelfHandledCampaign) -> Void)?) {
         guard let listener else {
             delegateAdapter = nil
+            // The SDK's own teardown for the delegate installed above. MoEngage
+            // holds it weakly, so dropping the adapter already stops callbacks.
+            MoEngageSDKInApp.sharedInstance.resetInAppDelegate()
             return
         }
         let adapter = SelfHandledDelegateAdapter(onCampaign: listener)
@@ -80,7 +83,9 @@ public final class MoEngageSdkClient: MoEngageClient {
             // MoEngage completes on an unspecified queue, and its campaign type
             // is not Sendable — hop before anything else touches it.
             nonisolated(unsafe) let campaign = campaignInfo
-            onMainActor { adapter?.deliver(campaign) }
+            // Weak: a fetch in flight at detach lands nowhere instead of in a
+            // plugin that already tore down.
+            onMainActor { [weak adapter] in adapter?.deliver(campaign) }
         }
     }
 

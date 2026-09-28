@@ -99,11 +99,7 @@ public final class MoEngagePlugin: DigiaCEPPlugin {
         self.mapper = mapper
         self.dispatcher = MoEngageEventDispatcher(client: client, cache: cache)
 
-        // Installed now, not in attach(), so a campaign MoEngage triggers while
-        // Digia.initialize() is still in flight is buffered rather than lost.
-        client.setSelfHandledListener { [weak self] campaign in
-            self?.onCampaignTriggered(campaign)
-        }
+        installListener()
     }
 
     // MARK: - DigiaCEPPlugin
@@ -111,6 +107,7 @@ public final class MoEngagePlugin: DigiaCEPPlugin {
     public func attach(host: DigiaCEPHost) {
         guard self.host == nil else { return }
         self.host = host
+        installListener()
 
         if !buffered.isEmpty {
             let pending = buffered
@@ -178,6 +175,15 @@ public final class MoEngagePlugin: DigiaCEPPlugin {
     }
 
     // MARK: - Delivery
+
+    /// Installs the self-handled listener: at construction so a launch campaign
+    /// is buffered rather than lost, and on every attach so a re-register after
+    /// detach hears campaigns again.
+    private func installListener() {
+        client.setSelfHandledListener { [weak self] campaign in
+            self?.onCampaignTriggered(campaign)
+        }
+    }
 
     func onCampaignTriggered(_ campaign: MoEngageSelfHandledCampaign) {
         guard host != nil else {
