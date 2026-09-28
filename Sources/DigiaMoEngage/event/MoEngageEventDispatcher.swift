@@ -10,6 +10,13 @@ import DigiaEngage
 /// point: before v2 the entry was evicted only on a dismissal that a dropped
 /// campaign never produced, so every campaign Digia declined leaked its entry —
 /// and the entry holds a MoEngage SDK object, not a string.
+///
+/// ## The key
+///
+/// Every method takes the **presentation id**, which is what the cache is keyed
+/// by. MoEngage's own campaign id repeats across deliveries, and resolving a
+/// handle by it would let a second copy of a live campaign steal the first
+/// one's dismissal — see `ICampaignCache`.
 @MainActor
 final class MoEngageEventDispatcher {
     private let client: MoEngageClient
@@ -26,22 +33,22 @@ final class MoEngageEventDispatcher {
     /// Shown only. Inline content used to be marked dismissed here too, on the
     /// reasoning that it has no close affordance and so no terminal moment of
     /// its own. It does: ``CampaignPresentation/outcome`` always settles, and
-    /// ``experienceEnded(_:displayed:)`` binds to it. Reporting a dismissal
+    /// the terminal path below binds to it. Reporting a dismissal
     /// while the campaign is still on screen told MoEngage something untrue,
     /// and it rested on the marketer typing `"type":"inline"` into the MoEngage
     /// payload — a field Digia has no concept of, which this plugin and its
     /// Kotlin twin defaulted opposite ways when it was absent. The Flutter
     /// plugin never had the branch.
-    func campaignShown(_ payload: CEPTriggerPayload) {
-        guard let campaign = campaign(for: payload) else { return }
-        log.i("CEP impression marked (selfHandledShown)", campaign: payload.campaignKey)
+    func campaignShown(key: String, campaignKey: String?) {
+        guard let campaign = campaign(forKey: key) else { return }
+        log.i("CEP impression marked (selfHandledShown)", campaign: campaignKey)
         client.markShown(campaign)
     }
 
     /// A qualifying interaction with the experience.
-    func campaignClicked(_ payload: CEPTriggerPayload) {
-        guard let campaign = campaign(for: payload) else { return }
-        log.i("CEP click marked (selfHandledClicked)", campaign: payload.campaignKey)
+    func campaignClicked(key: String, campaignKey: String?) {
+        guard let campaign = campaign(forKey: key) else { return }
+        log.i("CEP click marked (selfHandledClicked)", campaign: campaignKey)
         client.markClicked(campaign)
     }
 
@@ -51,24 +58,23 @@ final class MoEngageEventDispatcher {
     ///   `dismissed` arm of `PresentationOutcome`. A campaign that never
     ///   displayed has nothing to dismiss, so MoEngage is told nothing; the
     ///   cache entry goes either way.
-    func experienceEnded(_ payload: CEPTriggerPayload, displayed: Bool) {
-        let campaignId = payload.cepCampaignId
-        defer { cache.remove(campaignId: campaignId) }
+    func experienceEnded(key: String, campaignKey: String?, displayed: Bool) {
+        defer { cache.remove(campaignId: key) }
 
-        guard let campaign = campaign(for: payload) else { return }
+        guard let campaign = campaign(forKey: key) else { return }
         guard displayed else {
-            log.d("Nothing dispatched — the campaign never displayed (cepId=\(campaignId))", campaign: payload.campaignKey)
+            log.d("Nothing dispatched — the campaign never displayed", campaign: campaignKey)
             return
         }
-        log.i("CEP dismiss marked (selfHandledDismissed)", campaign: payload.campaignKey)
+        log.i("CEP dismiss marked (selfHandledDismissed)", campaign: campaignKey)
         client.markDismissed(campaign)
     }
 
     // MARK: - Helpers
 
-    private func campaign(for payload: CEPTriggerPayload) -> MoEngageSelfHandledCampaign? {
-        guard let campaign = cache.get(campaignId: payload.cepCampaignId) else {
-            log.w("No cached campaign for cepId=\(payload.cepCampaignId)", campaign: payload.campaignKey)
+    private func campaign(forKey key: String) -> MoEngageSelfHandledCampaign? {
+        guard let campaign = cache.get(campaignId: key) else {
+            log.w("No cached campaign for key=\(key)")
             return nil
         }
         return campaign
