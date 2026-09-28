@@ -201,4 +201,43 @@ struct MoEngagePluginTests {
 
         #expect(h.host.delivered.count == 1, "a second attach must not double-deliver")
     }
+
+    @Test("a campaign with no Digia key never reaches Digia")
+    func unkeyedCampaignSkipsCore() {
+        // Host-owned: delivering it would only drop with unknown_campaign_key.
+        let h = Harness()
+        h.client.emit(FakeCampaign(campaignContent: #"{"title":"host only"}"#))
+
+        #expect(h.host.delivered.isEmpty)
+        #expect(h.client.shown.isEmpty && h.client.dismissed.isEmpty)
+        #expect(h.cache.count == 0)
+    }
+
+    @Test("an unclaimed campaign reaches the host receiver when one is set")
+    func unclaimedCampaignForwardsToHost() {
+        let client = FakeMoEngageClient()
+        let host = FakeCEPHost()
+        var forwarded: [String] = []
+        let plugin = MoEngagePlugin(client: client, onUnclaimedCampaign: { forwarded.append($0.campaignId) })
+        plugin.attach(host: host)
+
+        client.emit(FakeCampaign(campaignId: "host-1", campaignContent: #"{"title":"host only"}"#))
+
+        #expect(forwarded == ["host-1"])
+        #expect(host.delivered.isEmpty)
+    }
+
+    @Test("a keyed campaign still reaches Digia when a receiver is set")
+    func keyedCampaignIgnoresReceiver() {
+        let client = FakeMoEngageClient()
+        let host = FakeCEPHost()
+        var forwarded = 0
+        let plugin = MoEngagePlugin(client: client, onUnclaimedCampaign: { _ in forwarded += 1 })
+        plugin.attach(host: host)
+
+        client.emit(FakeCampaign.modal())
+
+        #expect(host.delivered.count == 1)
+        #expect(forwarded == 0)
+    }
 }

@@ -7,4 +7,8 @@ import DigiaEngage
 public protocol ICampaignPayloadMapper {
     /// Translates a MoEngage self-handled campaign into a Digia `CEPTriggerPayload`.
     func map(_ campaign: MoEngageSelfHandledCampaign) -> CEPTriggerPayload
+
+    /// Whether the marketer JSON carries a Digia campaign key. Unkeyed campaigns belong to
+    /// the host app's own renderer, if it has one.
+    func hasDigiaKey(_ campaign: MoEngageSelfHandledCampaign) -> Bool
 }

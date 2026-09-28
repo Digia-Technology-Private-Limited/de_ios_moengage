@@ -62,6 +62,7 @@ public final class MoEngagePlugin: DigiaCEPPlugin {
     private let cache: ICampaignCache
     private let mapper: ICampaignPayloadMapper
     private let dispatcher: MoEngageEventDispatcher
+    private let onUnclaimedCampaign: ((MoEngageSelfHandledCampaign) -> Void)?
 
     private var host: DigiaCEPHost?
 
@@ -87,14 +88,20 @@ public final class MoEngagePlugin: DigiaCEPPlugin {
     ///
     /// `client`, `cache` and `mapper` are injectable — pass fakes in tests, or
     /// an alternative storage strategy in production.
+    ///
+    /// `onUnclaimedCampaign` receives self-handled campaigns carrying no Digia
+    /// key — the host app's own. Without one they are logged and ignored, never
+    /// delivered to Digia (which would only drop them with an unknown key).
     public init(
         client: MoEngageClient,
         cache: ICampaignCache = CampaignCache(),
-        mapper: ICampaignPayloadMapper = CampaignPayloadMapper()
+        mapper: ICampaignPayloadMapper = CampaignPayloadMapper(),
+        onUnclaimedCampaign: ((MoEngageSelfHandledCampaign) -> Void)? = nil
     ) {
         self.client = client
         self.cache = cache
         self.mapper = mapper
+        self.onUnclaimedCampaign = onUnclaimedCampaign
         self.dispatcher = MoEngageEventDispatcher(client: client, cache: cache)
 
         // Installed now, not in attach(), so a campaign MoEngage triggers while
@@ -193,6 +200,14 @@ public final class MoEngagePlugin: DigiaCEPPlugin {
     private func deliver(_ campaign: MoEngageSelfHandledCampaign) {
         guard let host else {
             log.e("Dropped — no host attached")
+            return
+        }
+
+        guard mapper.hasDigiaKey(campaign) else {
+            // A host-owned campaign: Digia would only drop it with an unknown
+            // key, so hand it back when the host left a receiver.
+            log.i("Unclaimed (cepId=\(campaign.campaignId)) — no Digia key")
+            onUnclaimedCampaign?(campaign)
             return
         }
 

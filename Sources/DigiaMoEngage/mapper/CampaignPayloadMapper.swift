@@ -30,16 +30,7 @@ public struct CampaignPayloadMapper: ICampaignPayloadMapper {
     public func map(_ campaign: MoEngageSelfHandledCampaign) -> CEPTriggerPayload {
         let campaignId   = campaign.campaignId
         let campaignName = campaign.campaignName
-
-        // The marketer-authored payload JSON lives in the self-handled content string.
-        var payloadMap: [String: JSONValue] = [:]
-        let jsonString = campaign.campaignContent
-        if let data = jsonString.data(using: .utf8),
-           let decoded = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-            for (key, value) in decoded {
-                payloadMap[key] = jsonValueFrom(any: value)
-            }
-        }
+        let payloadMap = decodePayload(campaign)
 
         let cepMetadata: [String: String] = [
             "campaignId":   campaignId,
@@ -56,7 +47,24 @@ public struct CampaignPayloadMapper: ICampaignPayloadMapper {
         )
     }
 
+    public func hasDigiaKey(_ campaign: MoEngageSelfHandledCampaign) -> Bool {
+        resolveCampaignKey(decodePayload(campaign)) != nil
+    }
+
     // MARK: - Private
+
+    /// The marketer-authored payload JSON as a map, or empty when it parses to nothing usable.
+    private func decodePayload(_ campaign: MoEngageSelfHandledCampaign) -> [String: JSONValue] {
+        var payloadMap: [String: JSONValue] = [:]
+        let jsonString = campaign.campaignContent
+        if let data = jsonString.data(using: .utf8),
+           let decoded = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            for (key, value) in decoded {
+                payloadMap[key] = jsonValueFrom(any: value)
+            }
+        }
+        return payloadMap
+    }
 
     /// Reads the Digia campaign key out of the marketer JSON, trying `campaignKeyNames` in
     /// priority order. Returns nil when the marketer typed no key at all.
