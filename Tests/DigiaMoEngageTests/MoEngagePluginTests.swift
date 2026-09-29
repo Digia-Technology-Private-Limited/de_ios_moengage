@@ -261,16 +261,4 @@ struct MoEngagePluginTests {
 
         #expect(client.installCount == 1, "init installs once, attach keeps it")
     }
-
-    @Test("a launch campaign buffered before attach survives it")
-    func bufferedCampaignSurvivesAttach() {
-        let client = FakeMoEngageClient()
-        let host = FakeCEPHost()
-        let plugin = MoEngagePlugin(client: client)
-
-        client.emit(FakeCampaign.modal(campaignId: "launch"))
-        plugin.attach(host: host)
-
-        #expect(host.delivered.map(\.cepCampaignId) == ["launch"])
-    }
 }

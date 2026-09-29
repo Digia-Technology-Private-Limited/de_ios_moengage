@@ -164,7 +164,12 @@ public final class MoEngagePlugin: DigiaCEPPlugin {
         guard host != nil else {
             // de_workspace#42: no wait, no marking calls. The campaign stays
             // eligible and returns on the re-pull at attach.
-            log.w("Dropping \(campaign.campaignId) — no host attached (not_ready)")
+            log.w(
+                "Dropping \(campaign.campaignId) — no host attached (not_ready)",
+                campaign: mapper.map(campaign).campaignKey,
+                stage: .trigger,
+                reason: DropReason.notReady
+            )
             return
         }
         deliver(campaign)
@@ -177,7 +182,12 @@ public final class MoEngagePlugin: DigiaCEPPlugin {
     /// early (spec §7.3).
     private func deliver(_ campaign: MoEngageSelfHandledCampaign) {
         guard let host else {
-            log.w("Dropping \(campaign.campaignId) — no host attached (not_ready)")
+            log.w(
+                "Dropping \(campaign.campaignId) — no host attached (not_ready)",
+                campaign: mapper.map(campaign).campaignKey,
+                stage: .trigger,
+                reason: DropReason.notReady
+            )
             return
         }
 
