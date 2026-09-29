@@ -67,10 +67,11 @@ public final class MoEngagePlugin: DigiaCEPPlugin {
 
     /// Presentations this plugin still owns, keyed by presentation id.
     ///
+    /// The core-minted id, not the campaign id: the campaign id repeats
+    /// across deliveries, and sharing an entry would steal a dismissal.
     /// Also the idempotency guard on the terminal path: `finish` removes the
     /// entry first, so the outcome task and `detach()` can race and only the
-    /// first one does any work. Keyed by the core-minted id, not the campaign
-    /// id: two live deliveries of one campaign must never share an entry.
+    /// first one does any work.
     private var live: [String: CampaignPresentation] = [:]
 
     /// Campaigns MoEngage triggered before any host attached.
@@ -199,9 +200,7 @@ public final class MoEngagePlugin: DigiaCEPPlugin {
 
         let trigger = mapper.map(campaign)
         let presentation = host.deliver(trigger)
-        // Keyed by the core-minted presentation id: MoEngage's own campaign
-        // id repeats across deliveries, and resolving by it would let a
-        // second copy of a live campaign steal the first one's dismissal.
+        // Keyed by presentation id — see `live`.
         let key = presentation.id
         cache.put(campaignId: key, data: campaign)
         log.i("Received (cepId=\(trigger.cepCampaignId))", campaign: trigger.campaignKey)
@@ -235,7 +234,7 @@ public final class MoEngagePlugin: DigiaCEPPlugin {
     /// task and `detach()` may both call it.
     private func finish(key: String, trigger: CEPTriggerPayload, displayed: Bool) {
         guard live.removeValue(forKey: key) != nil else { return }
-        dispatcher.experienceEnded(key: key, campaignKey: trigger.campaignKey, displayed: displayed)
+        dispatcher.experienceEnded(key: key, campaignKey: trigger.campaignKey, cepId: trigger.cepCampaignId, displayed: displayed)
     }
 
     // MARK: - Pre-attach buffer

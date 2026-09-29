@@ -11,12 +11,7 @@ import DigiaEngage
 /// campaign never produced, so every campaign Digia declined leaked its entry —
 /// and the entry holds a MoEngage SDK object, not a string.
 ///
-/// ## The key
-///
-/// Every method takes the **presentation id**, which is what the cache is keyed
-/// by. MoEngage's own campaign id repeats across deliveries, and resolving a
-/// handle by it would let a second copy of a live campaign steal the first
-/// one's dismissal — see `ICampaignCache`.
+/// Keys are presentation ids — see `live` in `MoEngagePlugin`.
 @MainActor
 final class MoEngageEventDispatcher {
     private let client: MoEngageClient
@@ -58,12 +53,12 @@ final class MoEngageEventDispatcher {
     ///   `dismissed` arm of `PresentationOutcome`. A campaign that never
     ///   displayed has nothing to dismiss, so MoEngage is told nothing; the
     ///   cache entry goes either way.
-    func experienceEnded(key: String, campaignKey: String?, displayed: Bool) {
+    func experienceEnded(key: String, campaignKey: String?, cepId: String, displayed: Bool) {
         defer { cache.remove(campaignId: key) }
 
         guard let campaign = campaign(forKey: key) else { return }
         guard displayed else {
-            log.d("Nothing dispatched — the campaign never displayed", campaign: campaignKey)
+            log.d("Nothing dispatched — the campaign never displayed (cepId=\(cepId))", campaign: campaignKey)
             return
         }
         log.i("CEP dismiss marked (selfHandledDismissed)", campaign: campaignKey)

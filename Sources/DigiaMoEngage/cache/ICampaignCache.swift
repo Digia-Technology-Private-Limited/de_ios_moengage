@@ -4,11 +4,8 @@
 /// strategy. An in-memory map, an LRU cache, or a persistent store may be
 /// injected without touching `MoEngagePlugin` or `MoEngageEventDispatcher`.
 ///
-/// The key is always the core-minted presentation id, never MoEngage's
-/// campaign id: the campaign id repeats across deliveries, and keying by it
-/// would let a second copy of a live campaign steal the first one's dismissal.
-/// Parameter labels keep the historical `campaignId` name so existing
-/// implementations keep compiling.
+/// Keyed by presentation id — see `live` in `MoEngagePlugin`. Parameter labels
+/// keep the historical `campaignId` name so existing code keeps compiling.
 public protocol ICampaignCache: AnyObject {
     /// Stores `data` keyed by `campaignId`.
     func put(campaignId: String, data: MoEngageSelfHandledCampaign)
