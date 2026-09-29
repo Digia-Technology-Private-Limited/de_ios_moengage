@@ -242,4 +242,27 @@ struct MoEngagePluginTests {
             "a re-register installs a fresh delegate"
         )
     }
+
+    @Test("attach keeps the init-time adapter when one exists")
+    func attachKeepsInitAdapter() {
+        // Replacing the adapter on attach frees the one a fetch already
+        // captured, losing a launch campaign. Attach must not reinstall.
+        let client = FakeMoEngageClient()
+        let plugin = MoEngagePlugin(client: client)
+        plugin.attach(host: FakeCEPHost())
+
+        #expect(client.installCount == 1, "init installs once, attach keeps it")
+    }
+
+    @Test("a launch campaign buffered before attach survives it")
+    func bufferedCampaignSurvivesAttach() {
+        let client = FakeMoEngageClient()
+        let host = FakeCEPHost()
+        let plugin = MoEngagePlugin(client: client)
+
+        client.emit(FakeCampaign.modal(campaignId: "launch"))
+        plugin.attach(host: host)
+
+        #expect(host.delivered.map(\.cepCampaignId) == ["launch"])
+    }
 }
