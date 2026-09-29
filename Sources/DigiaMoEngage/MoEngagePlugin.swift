@@ -40,22 +40,6 @@ public final class MoEngagePlugin: DigiaCEPPlugin {
 
     public let id = "moengage"
 
-    /// How long a campaign may sit buffered waiting for `Digia.register()`
-    /// before it is dropped.
-    ///
-    /// Buffering at all is what lets an app-launch campaign survive the gap
-    /// between MoEngage triggering it and Digia being registered — the listener
-    /// is installed at construction, which can be earlier than `attach`.
-    /// Bounding it is what stops a session that never registers Digia from
-    /// accumulating MoEngage campaign objects for its whole lifetime.
-    ///
-    /// Spec §10.5 G-d: this timer, and only this timer, stays in the plugin.
-    public static let attachGrace: TimeInterval = 10
-
-    /// Bound on the pre-attach buffer. Unbounded buffering is the bug, not the
-    /// feature.
-    private static let maxBufferedCampaigns = 5
-
     // MARK: - Private
 
     private let client: MoEngageClient
@@ -73,9 +57,6 @@ public final class MoEngagePlugin: DigiaCEPPlugin {
     /// entry first, so the outcome task and `detach()` can race and only the
     /// first one does any work.
     private var live: [String: CampaignPresentation] = [:]
-
-    /// Campaigns MoEngage triggered before any host attached.
-    private var buffered: [MoEngageSelfHandledCampaign] = []
 
     private let log = DigiaLogger("ME")
 
@@ -109,13 +90,8 @@ public final class MoEngagePlugin: DigiaCEPPlugin {
         self.host = host
         installListener()
 
-        if !buffered.isEmpty {
-            let pending = buffered
-            buffered = []
-            log.d("Flushing \(pending.count) campaign(s) buffered before attach")
-            pending.forEach(deliver)
-        }
-
+        // Re-pull, not a buffer flush: a pre-attach campaign was discarded,
+        // never marked, so it stays eligible and MoEngage offers it again here.
         client.fetchSelfHandledInApp()
         log.i("Plugin attached — listening for self-handled in-app campaigns")
     }
@@ -146,7 +122,6 @@ public final class MoEngagePlugin: DigiaCEPPlugin {
         live.removeAll()
 
         client.setSelfHandledListener(nil)
-        buffered.removeAll()
         cache.clear()
         host = nil
         log.i("Plugin detached")
@@ -176,9 +151,9 @@ public final class MoEngagePlugin: DigiaCEPPlugin {
 
     // MARK: - Delivery
 
-    /// Installs the self-handled listener: at construction so a launch campaign
-    /// is buffered rather than lost, and on every attach so a re-register after
-    /// detach hears campaigns again.
+    /// Installs the self-handled listener: at construction so it is ready before
+    /// attach, and on every attach so a re-register after detach hears campaigns
+    /// again. A campaign with no host drops as not_ready (de_workspace#42).
     private func installListener() {
         client.setSelfHandledListener { [weak self] campaign in
             self?.onCampaignTriggered(campaign)
@@ -187,7 +162,9 @@ public final class MoEngagePlugin: DigiaCEPPlugin {
 
     func onCampaignTriggered(_ campaign: MoEngageSelfHandledCampaign) {
         guard host != nil else {
-            bufferUntilAttach(campaign)
+            // de_workspace#42: no wait, no marking calls. The campaign stays
+            // eligible and returns on the re-pull at attach.
+            log.w("Dropping \(campaign.campaignId) — no host attached (not_ready)")
             return
         }
         deliver(campaign)
@@ -200,7 +177,7 @@ public final class MoEngagePlugin: DigiaCEPPlugin {
     /// early (spec §7.3).
     private func deliver(_ campaign: MoEngageSelfHandledCampaign) {
         guard let host else {
-            log.e("Dropped — no host attached")
+            log.w("Dropping \(campaign.campaignId) — no host attached (not_ready)")
             return
         }
 
@@ -241,28 +218,6 @@ public final class MoEngagePlugin: DigiaCEPPlugin {
     private func finish(key: String, trigger: CEPTriggerPayload, displayed: Bool) {
         guard live.removeValue(forKey: key) != nil else { return }
         dispatcher.experienceEnded(key: key, campaignKey: trigger.campaignKey, cepId: trigger.cepCampaignId, displayed: displayed)
-    }
-
-    // MARK: - Pre-attach buffer
-
-    private func bufferUntilAttach(_ campaign: MoEngageSelfHandledCampaign) {
-        if buffered.count >= Self.maxBufferedCampaigns {
-            let evicted = buffered.removeFirst()
-            log.w("Pre-attach buffer full — dropping \(evicted.campaignId)")
-        }
-        buffered.append(campaign)
-        log.d("No host attached yet — buffering \(campaign.campaignId)")
-
-        let campaignId = campaign.campaignId
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.attachGrace) { [weak self] in
-            MainActor.assumeIsolated { self?.expireBuffered(campaignId: campaignId) }
-        }
-    }
-
-    private func expireBuffered(campaignId: String) {
-        guard let index = buffered.firstIndex(where: { $0.campaignId == campaignId }) else { return }
-        buffered.remove(at: index)
-        log.w("No Digia plugin registered within \(Self.attachGrace)s of \(campaignId) — dropping it. Call Digia.register(MoEngagePlugin()) during startup.")
     }
 }
 
