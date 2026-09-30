@@ -214,6 +214,14 @@ public final class MoEngagePlugin: DigiaCEPPlugin {
             return
         }
 
+        // An inline campaign releases its hold at acceptance, before any display.
+        // Mark it dismissed then (M-14). A modal settle is already settled here.
+        Task { @MainActor [weak self] in
+            await presentation.holdReleased.value
+            guard presentation.state == .pending else { return }
+            self?.dispatcher.campaignReleased(key: key, campaignKey: trigger.campaignKey)
+        }
+
         // `weak self`: PresentationPromise deliberately ignores cancellation, so
         // a task awaiting an outcome core never settles parks forever — it must
         // not keep the plugin alive.

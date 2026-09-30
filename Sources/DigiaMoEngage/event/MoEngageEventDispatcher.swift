@@ -17,6 +17,8 @@ final class MoEngageEventDispatcher {
     private let client: MoEngageClient
     private let cache: ICampaignCache
     private let log = DigiaLogger("ME")
+    /// Keys already marked dismissed by `campaignReleased`, so the end does not mark them again.
+    private var released: Set<String> = []
 
     init(client: MoEngageClient, cache: ICampaignCache) {
         self.client = client
@@ -47,6 +49,15 @@ final class MoEngageEventDispatcher {
         client.markClicked(campaign)
     }
 
+    /// An inline campaign released its hold at acceptance. Marks it dismissed at
+    /// once so it does not block other campaigns (M-14). The cache entry stays
+    /// for later shown and click marks.
+    func campaignReleased(key: String, campaignKey: String?) {
+        guard let campaign = campaign(forKey: key), released.insert(key).inserted else { return }
+        log.i("CEP early dismiss marked (selfHandledDismissed)", campaign: campaignKey)
+        client.markDismissed(campaign)
+    }
+
     /// The presentation settled. Terminal, and reached on **both** outcome arms.
     ///
     /// - Parameter displayed: whether the experience reached the screen — the
@@ -55,6 +66,7 @@ final class MoEngageEventDispatcher {
     ///   cache entry goes either way.
     func experienceEnded(key: String, campaignKey: String?, cepId: String, displayed: Bool) {
         defer { cache.remove(campaignId: key) }
+        if released.remove(key) != nil { return }
 
         guard let campaign = campaign(forKey: key) else { return }
         guard displayed else {
