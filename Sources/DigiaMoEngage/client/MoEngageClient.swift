@@ -67,11 +67,10 @@ public final class MoEngageSdkClient: MoEngageClient {
             MoEngageSDKInApp.sharedInstance.resetInAppDelegate()
             return
         }
-        // Keep the init-time adapter across attach: replacing it would free the
-        // adapter a fetch already captured, losing a launch campaign. After a
-        // detach the adapter is nil, so a re-register installs a fresh one.
-        guard delegateAdapter == nil else { return }
-        let adapter = SelfHandledDelegateAdapter(onCampaign: listener)
+        // Keep the init-time adapter: replacing it would free the adapter a fetch
+        // already captured. Install it again anyway, because another plugin
+        // instance's detach (an RN reload) resets the shared SDK delegate.
+        let adapter = delegateAdapter ?? SelfHandledDelegateAdapter(onCampaign: listener)
         delegateAdapter = adapter
         MoEngageSDKInApp.sharedInstance.setInAppDelegate(adapter)
     }
