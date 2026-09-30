@@ -43,6 +43,10 @@ final class FakeMoEngageClient: MoEngageClient {
     private(set) var fetchCount = 0
     private(set) var listenerCleared = false
 
+    /// Non-nil installs, mirroring the real client: it keeps the init-time
+    /// adapter across attach and only reinstalls after a detach cleared it.
+    private(set) var installCount = 0
+
     private var listener: (@MainActor (MoEngageSelfHandledCampaign) -> Void)?
 
     /// Runs from inside ``markDismissed(_:)``, so a test can make MoEngage's
@@ -57,8 +61,14 @@ final class FakeMoEngageClient: MoEngageClient {
     // MARK: - MoEngageClient
 
     func setSelfHandledListener(_ listener: (@MainActor (MoEngageSelfHandledCampaign) -> Void)?) {
+        guard let listener else {
+            self.listener = nil
+            listenerCleared = true
+            return
+        }
+        guard self.listener == nil else { return }
         self.listener = listener
-        if listener == nil { listenerCleared = true }
+        installCount += 1
     }
 
     func fetchSelfHandledInApp() { fetchCount += 1 }

@@ -221,4 +221,48 @@ struct MoEngagePluginTests {
 
         #expect(h.host.delivered.count == 1, "a second attach must not double-deliver")
     }
+
+    @Test("detach drops the delegate and a re-register installs a fresh one")
+    func detachResetsDelegateAndReAttachReinstalls() {
+        // After detach MoEngage must no longer reach the plugin, and the next
+        // register must hear campaigns again — not stay deaf on a cleared listener.
+        let h = Harness()
+        h.plugin.detach()
+        #expect(!h.client.hasListener, "detach must drop the listener")
+
+        h.client.emit(FakeCampaign.modal(campaignId: "stale"))
+        #expect(h.host.delivered.isEmpty, "a post-detach callback reaches nothing")
+        #expect(h.client.shown.isEmpty && h.client.dismissed.isEmpty, "no mark without a delivery")
+        #expect(h.cache.count == 0)
+
+        h.plugin.attach(host: h.host)
+        h.client.emit(FakeCampaign.modal(campaignId: "fresh"))
+        #expect(
+            h.host.delivered.map(\.cepCampaignId) == ["fresh"],
+            "a re-register installs a fresh delegate"
+        )
+    }
+
+    @Test("attach keeps the init-time adapter when one exists")
+    func attachKeepsInitAdapter() {
+        // Replacing the adapter on attach frees the one a fetch already
+        // captured, losing a launch campaign. Attach must not reinstall.
+        let client = FakeMoEngageClient()
+        let plugin = MoEngagePlugin(client: client)
+        plugin.attach(host: FakeCEPHost())
+
+        #expect(client.installCount == 1, "init installs once, attach keeps it")
+    }
+
+    @Test("a launch campaign buffered before attach survives it")
+    func bufferedCampaignSurvivesAttach() {
+        let client = FakeMoEngageClient()
+        let host = FakeCEPHost()
+        let plugin = MoEngagePlugin(client: client)
+
+        client.emit(FakeCampaign.modal(campaignId: "launch"))
+        plugin.attach(host: host)
+
+        #expect(host.delivered.map(\.cepCampaignId) == ["launch"])
+    }
 }
