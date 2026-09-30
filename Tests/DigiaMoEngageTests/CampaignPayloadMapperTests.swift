@@ -64,6 +64,13 @@ struct CampaignPayloadMapperTests {
 
         #expect(payload.campaignKey == "camp_1")
         #expect(payload.cepMetadata["campaignId"] == "camp_1")
+        #expect(!payload.corrupt)
+    }
+
+    @Test("marks a malformed JSON that names a Digia key as corrupt")
+    func corruptJson() {
+        #expect(mapper.map(campaign(#"{"digiaKey":"promo"#)).corrupt)
+        #expect(!mapper.map(campaign(#"{"digiaKey":"promo"}"#)).corrupt)
     }
 
     @Test("ignores a key that is present but not a usable string")
