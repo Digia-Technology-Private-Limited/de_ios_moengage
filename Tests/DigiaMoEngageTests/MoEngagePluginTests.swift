@@ -156,33 +156,41 @@ struct MoEngagePluginTests {
         #expect(h.cache.count == 0, "the entry dies with the presentation")
     }
 
-    // MARK: - The pre-attach buffer
+    // MARK: - Pre-attach drops, never buffered (de_workspace#42)
 
-    @Test("a campaign triggered before attach is delivered on attach")
-    func bufferedCampaignFlushedOnAttach() {
+    @Test("a campaign triggered before attach drops silently and re-pulls on attach")
+    func preAttachDropsAndRePullsOnAttach() {
         let h = Harness(attach: false)
 
         h.client.emit(FakeCampaign.modal())
-        #expect(h.host.delivered.isEmpty, "buffered, not delivered yet")
+        #expect(h.host.delivered.isEmpty)
+        #expect(h.client.shown.isEmpty)
+        #expect(h.client.clicked.isEmpty)
+        #expect(h.client.dismissed.isEmpty, "never displayed, so nothing to dismiss")
+        #expect(h.cache.count == 0)
 
         h.plugin.attach(host: h.host)
 
-        #expect(h.host.delivered.map(\.cepCampaignId) == ["camp_1"])
+        #expect(h.host.delivered.isEmpty, "a pre-attach drop is never delivered late")
+        #expect(h.client.fetchCount == 1, "attach re-pulls instead of flushing")
     }
 
-    @Test("the pre-attach buffer is bounded")
-    func bufferIsBounded() {
-        // Unbounded buffering is the bug, not the feature: a session that never
-        // registers Digia would otherwise hold every campaign MoEngage triggered.
+    @Test("every pre-attach drop stays silent, so nothing is lost to a marking call")
+    func preAttachDropsStaySilent() {
         let h = Harness(attach: false)
 
         for index in 1...6 { h.client.emit(FakeCampaign.modal(campaignId: "camp_\(index)")) }
+
+        #expect(h.host.delivered.isEmpty)
+        #expect(h.client.shown.isEmpty)
+        #expect(h.client.clicked.isEmpty)
+        #expect(h.client.dismissed.isEmpty)
+        #expect(h.cache.count == 0)
+
         h.plugin.attach(host: h.host)
 
-        #expect(
-            h.host.delivered.map(\.cepCampaignId) == ["camp_2", "camp_3", "camp_4", "camp_5", "camp_6"],
-            "bounded at 5, oldest first out"
-        )
+        #expect(h.host.delivered.isEmpty, "nothing was buffered, so nothing flushes")
+        #expect(h.client.fetchCount == 1, "the drop frees the campaign to come back on the re-pull")
     }
 
     // MARK: - Wiring
@@ -252,17 +260,5 @@ struct MoEngagePluginTests {
         plugin.attach(host: FakeCEPHost())
 
         #expect(client.installCount == 1, "init installs once, attach keeps it")
-    }
-
-    @Test("a launch campaign buffered before attach survives it")
-    func bufferedCampaignSurvivesAttach() {
-        let client = FakeMoEngageClient()
-        let host = FakeCEPHost()
-        let plugin = MoEngagePlugin(client: client)
-
-        client.emit(FakeCampaign.modal(campaignId: "launch"))
-        plugin.attach(host: host)
-
-        #expect(host.delivered.map(\.cepCampaignId) == ["launch"])
     }
 }
