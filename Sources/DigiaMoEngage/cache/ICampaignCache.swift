@@ -3,6 +3,9 @@
 /// Decouples lifecycle-event correlation from any particular storage
 /// strategy. An in-memory map, an LRU cache, or a persistent store may be
 /// injected without touching `MoEngagePlugin` or `MoEngageEventDispatcher`.
+///
+/// Keyed by presentation id — see `live` in `MoEngagePlugin`. Parameter labels
+/// keep the historical `campaignId` name so existing code keeps compiling.
 public protocol ICampaignCache: AnyObject {
     /// Stores `data` keyed by `campaignId`.
     func put(campaignId: String, data: MoEngageSelfHandledCampaign)

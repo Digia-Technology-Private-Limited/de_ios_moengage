@@ -89,6 +89,26 @@ struct MoEngagePluginTests {
         #expect(h.client.listenerCleared)
     }
 
+    @Test("two live deliveries of one campaign settle independently")
+    func repeatedCampaignSettlesIndependently() async {
+        // Keyed by presentation id: the second delivery must not steal the
+        // first one's entry, and each dismissal must reach MoEngage.
+        let h = Harness()
+        h.client.emit(FakeCampaign.modal(campaignId: "camp_1"))
+        h.client.emit(FakeCampaign.modal(campaignId: "camp_1"))
+        #expect(h.host.controllers.count == 2)
+
+        h.host.controllers[0].markDisplaying()
+        h.host.controllers[0].settle(.dismissed(reason: .userClose, completed: false))
+        await drainMainActor()
+        h.host.controllers[1].markDisplaying()
+        h.host.controllers[1].settle(.dismissed(reason: .userClose, completed: false))
+        await drainMainActor()
+
+        #expect(h.client.dismissed == ["camp_1", "camp_1"])
+        #expect(h.cache.count == 0)
+    }
+
     // MARK: - Marking: what actually reached MoEngage
 
     @Test("a displayed campaign is reported shown, then dismissed")

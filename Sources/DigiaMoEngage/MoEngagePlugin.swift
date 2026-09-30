@@ -65,8 +65,10 @@ public final class MoEngagePlugin: DigiaCEPPlugin {
 
     private var host: DigiaCEPHost?
 
-    /// Presentations this plugin still owns, keyed by MoEngage campaign id.
+    /// Presentations this plugin still owns, keyed by presentation id.
     ///
+    /// The core-minted id, not the campaign id: the campaign id repeats
+    /// across deliveries, and sharing an entry would steal a dismissal.
     /// Also the idempotency guard on the terminal path: `finish` removes the
     /// entry first, so the outcome task and `detach()` can race and only the
     /// first one does any work.
@@ -131,7 +133,7 @@ public final class MoEngagePlugin: DigiaCEPPlugin {
         // Core settles a plugin's presentations before detaching it, but the
         // tasks awaiting those outcomes have not necessarily run yet. This is
         // the last moment the plugin can free MoEngage's side and its own cache.
-        for (campaignId, presentation) in live {   // a snapshot: `finish` mutates `live`
+        for (key, presentation) in live {   // a snapshot: `finish` mutates `live`
             // Read the outcome rather than assuming `false`: `cancel()` settles on the main
             // actor, inline, so by now the true terminal result is here. If core had already
             // settled this presentation as `dismissed` and only its awaiting task had yet to
@@ -139,7 +141,7 @@ public final class MoEngagePlugin: DigiaCEPPlugin {
             // the user really did see.
             presentation.cancel()
             finish(
-                campaignId: campaignId,
+                key: key,
                 trigger: presentation.trigger,
                 displayed: presentation.outcome.settledValue.map(didDisplay) ?? false
             )
@@ -197,25 +199,25 @@ public final class MoEngagePlugin: DigiaCEPPlugin {
         }
 
         let trigger = mapper.map(campaign)
-        let campaignId = trigger.cepCampaignId
-        cache.put(campaignId: campaignId, data: campaign)
-        log.i("Received (cepId=\(campaignId))", campaign: trigger.campaignKey)
-
         let presentation = host.deliver(trigger)
-        live[campaignId] = presentation
+        // Keyed by presentation id — see `live`.
+        let key = presentation.id
+        cache.put(campaignId: key, data: campaign)
+        log.i("Received (cepId=\(trigger.cepCampaignId))", campaign: trigger.campaignKey)
+        live[key] = presentation
 
         _ = presentation.onSignal { [weak self] signal in
             guard let self else { return }
             switch signal {
-            case .displayed: self.dispatcher.campaignShown(trigger)
-            case .clicked:   self.dispatcher.campaignClicked(trigger)
+            case .displayed: self.dispatcher.campaignShown(key: key, campaignKey: trigger.campaignKey)
+            case .clicked:   self.dispatcher.campaignClicked(key: key, campaignKey: trigger.campaignKey)
             }
         }
 
         // A synchronous drop settled before any task could be scheduled. Free
         // the entry inline rather than across a suspension point.
         if let outcome = presentation.outcome.settledValue {
-            finish(campaignId: campaignId, trigger: trigger, displayed: didDisplay(outcome))
+            finish(key: key, trigger: trigger, displayed: didDisplay(outcome))
             return
         }
 
@@ -224,15 +226,15 @@ public final class MoEngagePlugin: DigiaCEPPlugin {
         // not keep the plugin alive.
         Task { @MainActor [weak self] in
             let outcome = await presentation.outcome.value
-            self?.finish(campaignId: campaignId, trigger: trigger, displayed: didDisplay(outcome))
+            self?.finish(key: key, trigger: trigger, displayed: didDisplay(outcome))
         }
     }
 
     /// The single terminal funnel. Idempotent through `live`, so the outcome
     /// task and `detach()` may both call it.
-    private func finish(campaignId: String, trigger: CEPTriggerPayload, displayed: Bool) {
-        guard live.removeValue(forKey: campaignId) != nil else { return }
-        dispatcher.experienceEnded(trigger, displayed: displayed)
+    private func finish(key: String, trigger: CEPTriggerPayload, displayed: Bool) {
+        guard live.removeValue(forKey: key) != nil else { return }
+        dispatcher.experienceEnded(key: key, campaignKey: trigger.campaignKey, cepId: trigger.cepCampaignId, displayed: displayed)
     }
 
     // MARK: - Pre-attach buffer
