@@ -64,13 +64,14 @@ struct CampaignPayloadMapperTests {
 
         #expect(payload.campaignKey == "camp_1")
         #expect(payload.cepMetadata["campaignId"] == "camp_1")
-        #expect(!payload.corrupt)
     }
 
-    @Test("marks a malformed JSON that names a Digia key as corrupt")
-    func corruptJson() {
-        #expect(mapper.map(campaign(#"{"digiaKey":"promo"#)).corrupt)
-        #expect(!mapper.map(campaign(#"{"digiaKey":"promo"}"#)).corrupt)
+    @Test("falls back to the MoEngage id when malformed JSON names a Digia key")
+    func hostileBlobFallsBackToId() {
+        // No corrupt flag: the fallback id reaches core, which drops it as an
+        // unknown campaign key unless a campaign is coupled to that id.
+        #expect(mapper.map(campaign(#"{"digiaKey":"promo"#)).campaignKey == "camp_1")
+        #expect(mapper.map(campaign(#"{"digiaKey":"promo"}"#)).campaignKey == "promo")
     }
 
     @Test("ignores a key that is present but not a usable string")

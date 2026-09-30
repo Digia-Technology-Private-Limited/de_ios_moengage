@@ -9,8 +9,9 @@ import Foundation
 /// - carrying the MoEngage identifiers in `cepMetadata`, and
 /// - flattening the marketer-authored `variables` object into `variables`.
 ///
-/// Parsing failures degrade to an empty content map. A blob that names a Digia
-/// key but does not parse is marked `corrupt`, and core drops it.
+/// Parsing failures degrade to an empty content map, so the payload falls back
+/// to the MoEngage campaign id — and core drops it as an unknown key unless a
+/// campaign is actually coupled to that id.
 public struct CampaignPayloadMapper: ICampaignPayloadMapper {
     public init() {}
 
@@ -33,17 +34,13 @@ public struct CampaignPayloadMapper: ICampaignPayloadMapper {
 
         // The marketer-authored payload JSON lives in the self-handled content string.
         var payloadMap: [String: JSONValue] = [:]
-        var parsed = false
         let jsonString = campaign.campaignContent
         if let data = jsonString.data(using: .utf8),
            let decoded = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-            parsed = true
             for (key, value) in decoded {
                 payloadMap[key] = jsonValueFrom(any: value)
             }
         }
-        // A Digia key name in an unparseable blob marks it corrupt; no key means host-owned.
-        let corrupt = !parsed && Self.campaignKeyNames.contains { jsonString.contains($0) }
 
         let cepMetadata: [String: String] = [
             "campaignId":   campaignId,
@@ -56,8 +53,7 @@ public struct CampaignPayloadMapper: ICampaignPayloadMapper {
             cepCampaignId: campaignId,
             campaignKey: resolveCampaignKey(payloadMap) ?? campaignId,
             cepMetadata: cepMetadata,
-            variables: variables,
-            corrupt: corrupt
+            variables: variables
         )
     }
 
