@@ -22,10 +22,10 @@ let package = Package(
         // core's CEP v2 surface and resolves a core this package can no longer compile
         // against. Repoint at a tag once core publishes one carrying that contract.
         .package(path: "../core"),
-        // MoEngage iOS SDK
+        // MoEngage's documented SPM URL. Tags before 9.23.0 carry no Package.swift.
         .package(
-            url: "https://github.com/moengage/MoEngage-iOS-SDK.git",
-            from: "9.18.0"
+            url: "https://github.com/moengage/apple-sdk.git",
+            from: "9.23.0"
         ),
     ],
     targets: [
@@ -33,7 +33,7 @@ let package = Package(
             name: "DigiaMoEngage",
             dependencies: [
                 .product(name: "DigiaEngage", package: "core"),
-                .product(name: "MoEngageInApps", package: "MoEngage-iOS-SDK"),
+                .product(name: "MoEngageInApps", package: "apple-sdk"),
             ],
             path: "Sources/DigiaMoEngage"
         ),
