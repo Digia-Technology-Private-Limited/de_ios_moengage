@@ -76,13 +76,13 @@ public struct CampaignPayloadMapper: ICampaignPayloadMapper {
     /// Reads the runtime variables to interpolate into the campaign config.
     ///
     /// `args` is the older spelling, kept because campaigns authored against it are live; the
-    /// Flutter plugin accepts the same pair. The first of the two that is actually an object
+    /// Flutter plugin accepts the same pair. The first of the two that is a non-empty object
     /// wins — a marketer who wrote `variables` as something else gets the fallback rather than
     /// nothing, which is the only place this differs from Dart.
     private func resolveVariables(_ payloadMap: [String: JSONValue]) -> [String: String]? {
         var variables: [String: String] = [:]
         for name in ["variables", "args"] {
-            guard let obj = asObject(payloadMap[name]) else { continue }
+            guard let obj = asObject(payloadMap[name]), !obj.isEmpty else { continue }
             for (key, jsonValue) in obj {
                 if let value = flattenedString(jsonValue), !value.isEmpty {
                     variables[key] = value
@@ -125,7 +125,9 @@ public struct CampaignPayloadMapper: ICampaignPayloadMapper {
         switch value {
         case let .string(s): return s
         case let .int(i): return String(i)
-        case let .double(d): return String(d)
+        // A whole number such as an epoch renders as typed, not as "5.0".
+        case let .double(d):
+            return d.isFinite && d == d.rounded() && abs(d) < 1e15 ? String(Int64(d)) : String(d)
         case let .bool(b): return String(b)
         case .array, .object, .null: return nil
         }
