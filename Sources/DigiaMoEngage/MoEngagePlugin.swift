@@ -109,7 +109,7 @@ public final class MoEngagePlugin: DigiaCEPPlugin {
         installListener()
         if host.isReady { flushPending() }
 
-        // The re-pull stays: a campaign MoEngage offers again is deduplicated by campaign id.
+        // The re-pull stays: a campaign already held is deduplicated by campaign id.
         client.fetchSelfHandledInApp()
         log.i("Plugin attached — listening for self-handled in-app campaigns")
     }
@@ -191,8 +191,8 @@ public final class MoEngagePlugin: DigiaCEPPlugin {
     }
 
     func onCampaignTriggered(_ campaign: MoEngageSelfHandledCampaign) {
-        guard !isHeldOrLive(campaign.campaignId) else {
-            log.d("Skipping \(campaign.campaignId) — already held or live")
+        guard !pending.contains(where: { $0.campaignId == campaign.campaignId }) else {
+            log.d("Skipping \(campaign.campaignId) — already held")
             return
         }
         guard let host, host.isReady || hostFailed else {
@@ -202,14 +202,9 @@ public final class MoEngagePlugin: DigiaCEPPlugin {
         deliver(campaign, to: host)
     }
 
-    private func isHeldOrLive(_ campaignId: String) -> Bool {
-        pending.contains { $0.campaignId == campaignId }
-            || live.keys.contains { cache.get(campaignId: $0)?.campaignId == campaignId }
-    }
-
     private func flushPending() {
         guard let host else { return }
-        for campaign in pending.drain() { deliver(campaign, to: host) }
+        for held in pending.drain() { deliver(held.item, to: host, heldAt: held.heldAt) }
     }
 
     /// Hands a campaign to Digia and binds MoEngage's side to the handle.
@@ -217,11 +212,11 @@ public final class MoEngagePlugin: DigiaCEPPlugin {
     /// Shown and clicked ride `onSignal`; the dismissal and the cache entry ride
     /// `outcome`. Nothing rides `holdReleased` — MoEngage has no hold to free
     /// early (spec §7.3).
-    private func deliver(_ campaign: MoEngageSelfHandledCampaign, to host: DigiaCEPHost) {
+    private func deliver(_ campaign: MoEngageSelfHandledCampaign, to host: DigiaCEPHost, heldAt: Date? = nil) {
         let trigger = mapper.map(campaign)
         let presentation = host.deliver(trigger)
         if presentation.outcome.settledValue?.isHostNotReady == true {
-            pending.add(campaign)
+            pending.add(campaign, heldAt: heldAt)
             return
         }
         // Keyed by presentation id — see `live`.
