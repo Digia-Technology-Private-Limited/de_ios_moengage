@@ -3,26 +3,19 @@
 import Foundation
 import Testing
 
-/// The plugin pending buffer (de_workspace#71) on a fake clock.
+/// The plugin pending buffer (de_workspace#71).
 @MainActor
 @Suite("MoEngagePlugin — pending buffer", .serialized)
 struct MoEngagePendingBufferTests {
-    private let clock = FakeClock()
     private let client = FakeMoEngageClient()
     private let cache = CampaignCache()
     private let host: FakeCEPHost
     private let plugin: MoEngagePlugin
 
     init() {
-        let clock = clock
         host = FakeCEPHost()
         host.isReady = false
-        plugin = MoEngagePlugin(
-            client: client,
-            cache: cache,
-            schedule: { clock.schedule($0, $1) },
-            now: { clock.now }
-        )
+        plugin = MoEngagePlugin(client: client, cache: cache)
         plugin.attach(host: host)
     }
 
@@ -62,17 +55,6 @@ struct MoEngagePendingBufferTests {
         plugin.onHostReady()
         #expect(host.delivered.count == 2)
         #expect(cache.count == 1)
-    }
-
-    @Test("a held campaign expires after 5 minutes and is not delivered")
-    func expires() {
-        client.emit(FakeCampaign.modal(campaignId: "c1"))
-        clock.advance(299)
-        client.emit(FakeCampaign.modal(campaignId: "c2", campaignKey: "k2"))
-        clock.advance(1)
-        host.isReady = true
-        plugin.onHostReady()
-        #expect(keys == ["k2"])
     }
 
     @Test("FAILED drops held campaigns and later ones go straight to Core")

@@ -156,19 +156,41 @@ struct MoEngagePluginTests {
         #expect(h.cache.count == 0, "the entry dies with the presentation")
     }
 
-    // MARK: - Pre-attach campaigns are held (de_workspace#71)
+    // MARK: - Pre-attach drops, never buffered (de_workspace#42)
 
-    @Test("a campaign triggered before attach is held, and flushes on attach")
-    func preAttachHeldAndFlushedOnAttach() {
+    @Test("a campaign triggered before attach drops silently and re-pulls on attach")
+    func preAttachDropsAndRePullsOnAttach() {
         let h = Harness(attach: false)
 
         h.client.emit(FakeCampaign.modal())
         #expect(h.host.delivered.isEmpty)
+        #expect(h.client.shown.isEmpty)
+        #expect(h.client.clicked.isEmpty)
+        #expect(h.client.dismissed.isEmpty, "never displayed, so nothing to dismiss")
         #expect(h.cache.count == 0)
 
         h.plugin.attach(host: h.host)
-        #expect(h.host.delivered.count == 1)
-        #expect(h.client.fetchCount == 1, "attach still re-pulls")
+
+        #expect(h.host.delivered.isEmpty, "a pre-attach drop is never delivered late")
+        #expect(h.client.fetchCount == 1, "attach re-pulls instead of flushing")
+    }
+
+    @Test("every pre-attach drop stays silent, so nothing is lost to a marking call")
+    func preAttachDropsStaySilent() {
+        let h = Harness(attach: false)
+
+        for index in 1...6 { h.client.emit(FakeCampaign.modal(campaignId: "camp_\(index)")) }
+
+        #expect(h.host.delivered.isEmpty)
+        #expect(h.client.shown.isEmpty)
+        #expect(h.client.clicked.isEmpty)
+        #expect(h.client.dismissed.isEmpty)
+        #expect(h.cache.count == 0)
+
+        h.plugin.attach(host: h.host)
+
+        #expect(h.host.delivered.isEmpty, "nothing was buffered, so nothing flushes")
+        #expect(h.client.fetchCount == 1, "the drop frees the campaign to come back on the re-pull")
     }
 
     // MARK: - Wiring
