@@ -60,6 +60,16 @@ public final class MoEngagePlugin: DigiaCEPPlugin {
 
     private let log = DigiaLogger("ME")
 
+    /// Campaigns held while Core is not ready, one copy per campaign id. A drop
+    /// needs no MoEngage call: the campaign was never marked, so it stays eligible.
+    private lazy var pending = PendingPayloadBuffer(onDrop: { [weak self] in self?.onPendingDropped($0, $1) })
+
+    /// The MoEngage campaign of each held trigger, keyed by `cepCampaignId`.
+    private var heldCampaigns: [String: MoEngageSelfHandledCampaign] = [:]
+
+    /// Core init failed: stop holding until Core is ready again.
+    private var hostFailed = false
+
     // MARK: - Init
 
     public convenience init() {
@@ -94,6 +104,7 @@ public final class MoEngagePlugin: DigiaCEPPlugin {
         // never marked, so it stays eligible and MoEngage offers it again here.
         client.fetchSelfHandledInApp()
         log.i("Plugin attached — listening for self-handled in-app campaigns")
+        if host.isReady { onHostReady() }
     }
 
     public func onScreenChanged(_ screenName: String) {
@@ -102,7 +113,23 @@ public final class MoEngagePlugin: DigiaCEPPlugin {
         log.d("Screen tracked (screen=\(screenName))")
     }
 
+    public func onHostReady() {
+        hostFailed = false
+        let held = pending.takeAll()
+        guard !held.isEmpty else { return }
+        log.i("Digia ready — flushing \(held.count) held payloads")
+        for trigger in held {
+            if let campaign = heldCampaigns.removeValue(forKey: trigger.cepCampaignId) { receive(campaign) }
+        }
+    }
+
+    public func onHostInitFailed() {
+        onHostFailed()
+    }
+
     public func detach() {
+        hostFailed = false
+        pending.dropAll(DropReason.pluginDetached)
         // Core settles a plugin's presentations before detaching it, but the
         // tasks awaiting those outcomes have not necessarily run yet. This is
         // the last moment the plugin can free MoEngage's side and its own cache.
@@ -161,18 +188,7 @@ public final class MoEngagePlugin: DigiaCEPPlugin {
     }
 
     func onCampaignTriggered(_ campaign: MoEngageSelfHandledCampaign) {
-        guard host != nil else {
-            // de_workspace#42: no wait, no marking calls. The campaign stays
-            // eligible and returns on the re-pull at attach.
-            log.w(
-                "Dropping \(campaign.campaignId) — no host attached (not_ready)",
-                campaign: mapper.map(campaign).campaignKey,
-                stage: .trigger,
-                reason: DropReason.notReady
-            )
-            return
-        }
-        deliver(campaign)
+        receive(campaign)
     }
 
     /// Hands a campaign to Digia and binds MoEngage's side to the handle.
@@ -180,19 +196,27 @@ public final class MoEngagePlugin: DigiaCEPPlugin {
     /// Shown and clicked ride `onSignal`; the dismissal and the cache entry ride
     /// `outcome`. Nothing rides `holdReleased` — MoEngage has no hold to free
     /// early (spec §7.3).
-    private func deliver(_ campaign: MoEngageSelfHandledCampaign) {
+    private func receive(_ campaign: MoEngageSelfHandledCampaign) {
+        let trigger = mapper.map(campaign)
         guard let host else {
+            // de_workspace#42: no wait, no marking calls. The campaign stays
+            // eligible and returns on the re-pull at attach.
             log.w(
                 "Dropping \(campaign.campaignId) — no host attached (not_ready)",
-                campaign: mapper.map(campaign).campaignKey,
+                campaign: trigger.campaignKey,
                 stage: .trigger,
                 reason: DropReason.notReady
             )
             return
         }
+        if !hostFailed && !host.isReady {
+            log.i("Held until Digia is ready (cepId=\(trigger.cepCampaignId))", campaign: trigger.campaignKey)
+            hold(campaign, trigger)
+            return
+        }
 
-        let trigger = mapper.map(campaign)
         let presentation = host.deliver(trigger)
+        if holdIfNotReady(presentation, campaign) { return }
         // Keyed by presentation id — see `live`.
         let key = presentation.id
         cache.put(campaignId: key, data: campaign)
@@ -221,6 +245,44 @@ public final class MoEngagePlugin: DigiaCEPPlugin {
             let outcome = await presentation.outcome.value
             self?.finish(key: key, trigger: trigger, displayed: didDisplay(outcome))
         }
+    }
+
+    /// Holds a not-ready campaign again and returns true; stops holding on
+    /// initialization_failed.
+    private func holdIfNotReady(_ presentation: CampaignPresentation, _ campaign: MoEngageSelfHandledCampaign) -> Bool {
+        guard case .dropped(let reason, _)? = presentation.outcome.settledValue else { return false }
+        switch reason {
+        case .notReady where !hostFailed, .notInitialized where !hostFailed:
+            log.i("Digia not ready — held again", campaign: presentation.trigger.campaignKey, reason: reason)
+            hold(campaign, presentation.trigger)
+            return true
+        case .initializationFailed:
+            onHostFailed()
+        default:
+            break
+        }
+        return false
+    }
+
+    private func hold(_ campaign: MoEngageSelfHandledCampaign, _ trigger: CEPTriggerPayload) {
+        heldCampaigns[trigger.cepCampaignId] = campaign
+        pending.add(trigger)
+    }
+
+    private func onHostFailed() {
+        guard !hostFailed else { return }
+        hostFailed = true
+        pending.dropAll(DropReason.initializationFailed)
+    }
+
+    private func onPendingDropped(_ trigger: CEPTriggerPayload, _ reason: DiagnosticReason) {
+        heldCampaigns[trigger.cepCampaignId] = nil
+        log.w(
+            "Dropped while held (cepId=\(trigger.cepCampaignId))",
+            campaign: trigger.campaignKey,
+            stage: .trigger,
+            reason: reason
+        )
     }
 
     /// The single terminal funnel. Idempotent through `live`, so the outcome
