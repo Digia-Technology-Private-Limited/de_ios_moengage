@@ -275,7 +275,7 @@ public final class MoEngagePlugin: DigiaCEPPlugin {
         pending.dropAll(DropReason.initializationFailed)
     }
 
-    private func onPendingDropped(_ trigger: CEPTriggerPayload, _ reason: DiagnosticReason) {
+    private func onPendingDropped(_ trigger: CEPTriggerPayload, _ reason: DropReason) {
         heldCampaigns[trigger.cepCampaignId] = nil
         log.w(
             "Dropped while held (cepId=\(trigger.cepCampaignId))",
