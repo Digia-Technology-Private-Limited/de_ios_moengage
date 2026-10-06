@@ -281,7 +281,8 @@ public final class MoEngagePlugin: DigiaCEPPlugin {
             "Dropped while held (cepId=\(trigger.cepCampaignId))",
             campaign: trigger.campaignKey,
             stage: .trigger,
-            reason: reason
+            reason: reason,
+            extras: ["cep": "moengage"]
         )
     }
 
