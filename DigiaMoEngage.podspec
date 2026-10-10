@@ -21,7 +21,7 @@ Pod::Spec.new do |s|
   # A range, never an exact pin: CocoaPods has to satisfy every podspec in the
   # host app's graph at once, and two exact pins on the same pod deadlock
   # resolution outright — the clevertap_plugin 3.8.1 failure mode.
-  s.dependency 'DigiaEngage', '~> 3.14'
+  s.dependency 'DigiaEngage', '~> 4.0'
 
   # MoEngage's CocoaPods and SPM release lines use different version numbers for
   # the same underlying release, so the ranges below are NOT copy-pasted from

@@ -18,10 +18,12 @@ let package = Package(
         ),
     ],
     dependencies: [
-        // The sibling checkout, not a version tag: the published constraint predates
-        // core's CEP v2 surface and resolves a core this package can no longer compile
-        // against. Repoint at a tag once core publishes one carrying that contract.
-        .package(path: "../core"),
+        // 4.0.0 is the first core release carrying the CEP v2 contract this package
+        // compiles against; a range, so a host app can take any later 4.x.
+        .package(
+            url: "https://github.com/Digia-Technology-Private-Limited/digia_engage_ios.git",
+            from: "4.0.0"
+        ),
         // MoEngage's documented SPM URL. Tags before 9.23.0 carry no Package.swift.
         .package(
             url: "https://github.com/moengage/apple-sdk.git",
@@ -32,7 +34,7 @@ let package = Package(
         .target(
             name: "DigiaMoEngage",
             dependencies: [
-                .product(name: "DigiaEngage", package: "core"),
+                .product(name: "DigiaEngage", package: "digia_engage_ios"),
                 .product(name: "MoEngageInApps", package: "apple-sdk"),
             ],
             path: "Sources/DigiaMoEngage"
