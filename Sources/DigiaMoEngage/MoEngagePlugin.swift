@@ -228,6 +228,7 @@ public final class MoEngagePlugin: DigiaCEPPlugin {
             switch signal {
             case .displayed: self.dispatcher.campaignShown(key: key, campaignKey: trigger.campaignKey)
             case .clicked:   self.dispatcher.campaignClicked(key: key, campaignKey: trigger.campaignKey)
+            @unknown default: break
             }
         }
 

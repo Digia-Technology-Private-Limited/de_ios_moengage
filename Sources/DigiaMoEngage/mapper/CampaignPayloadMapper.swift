@@ -130,6 +130,7 @@ public struct CampaignPayloadMapper: ICampaignPayloadMapper {
             return d.isFinite && d == d.rounded() && abs(d) < 1e15 ? String(Int64(d)) : String(d)
         case let .bool(b): return String(b)
         case .array, .object, .null: return nil
+        @unknown default: return nil
         }
     }
 
