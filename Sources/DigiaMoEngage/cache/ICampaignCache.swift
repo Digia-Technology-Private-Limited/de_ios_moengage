@@ -1,22 +1,27 @@
-import MoEngageInApps
-
 /// Abstraction for MoEngage self-handled campaign data caching.
 ///
 /// Decouples lifecycle-event correlation from any particular storage
 /// strategy. An in-memory map, an LRU cache, or a persistent store may be
 /// injected without touching `MoEngagePlugin` or `MoEngageEventDispatcher`.
+///
+/// Keyed by presentation id — see `live` in `MoEngagePlugin`. Parameter labels
+/// keep the historical `campaignId` name so existing code keeps compiling.
 public protocol ICampaignCache: AnyObject {
     /// Stores `data` keyed by `campaignId`.
-    func put(campaignId: String, data: MoEngageInAppSelfHandledCampaign)
+    func put(campaignId: String, data: MoEngageSelfHandledCampaign)
 
-    /// Returns the cached `MoEngageInAppSelfHandledCampaign` for `campaignId`,
+    /// Returns the cached `MoEngageSelfHandledCampaign` for `campaignId`,
     /// or `nil` when absent.
-    func get(campaignId: String) -> MoEngageInAppSelfHandledCampaign?
+    func get(campaignId: String) -> MoEngageSelfHandledCampaign?
 
-    /// Removes the entry for `campaignId` (call after campaign lifecycle ends).
+    /// Removes the entry for `campaignId`.
+    ///
+    /// Called when the presentation's `outcome` settles — on **both** arms, so a
+    /// campaign Digia dropped cannot leak its entry any more than one that
+    /// displayed and closed.
     func remove(campaignId: String)
 
-    /// Evicts all entries (call during plugin teardown).
+    /// Evicts all entries (called on detach).
     func clear()
 
     /// Number of currently cached campaigns.

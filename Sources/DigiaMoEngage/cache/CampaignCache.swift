@@ -1,22 +1,21 @@
-import MoEngageInApps
-
 /// In-memory implementation of `ICampaignCache`.
 ///
 /// Backed by a plain `Dictionary`; entries are evicted per-campaign on
-/// `remove(_:)` (post-dismiss) and globally on `clear()` (teardown).
+/// `remove(campaignId:)` when the presentation settles, and globally on
+/// `clear()` at detach.
 ///
 /// Swap this with an LRU or persistent cache by implementing `ICampaignCache`
 /// and injecting it into `MoEngagePlugin` — no other code changes required.
 public final class CampaignCache: ICampaignCache {
     public init() {}
 
-    private var store: [String: MoEngageInAppSelfHandledCampaign] = [:]
+    private var store: [String: MoEngageSelfHandledCampaign] = [:]
 
-    public func put(campaignId: String, data: MoEngageInAppSelfHandledCampaign) {
+    public func put(campaignId: String, data: MoEngageSelfHandledCampaign) {
         store[campaignId] = data
     }
 
-    public func get(campaignId: String) -> MoEngageInAppSelfHandledCampaign? {
+    public func get(campaignId: String) -> MoEngageSelfHandledCampaign? {
         store[campaignId]
     }
 

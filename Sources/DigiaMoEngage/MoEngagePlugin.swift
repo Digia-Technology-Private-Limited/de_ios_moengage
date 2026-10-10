@@ -1,6 +1,5 @@
 import DigiaEngage
-import MoEngageCore
-import MoEngageInApps
+import Foundation
 import os.log
 
 /// Digia CEP plugin for MoEngage (iOS).
@@ -17,139 +16,286 @@ import os.log
 /// Digia.register(MoEngagePlugin())
 /// ```
 ///
-/// ## SOLID design
-/// - **SRP** — mapping, caching, and event dispatch each live in their own type.
-/// - **OCP** — inject custom `ICampaignCache` / `ICampaignPayloadMapper` without
-///   modifying this class.
-/// - **DIP** — depends on the `ICampaignCache` and `ICampaignPayloadMapper`
-///   abstractions, not their concrete implementations.
+/// ## What this plugin holds, and when it lets go
+///
+/// MoEngage has no global slot and no queue that a missed call can stall — what
+/// it hands over is a campaign object, and the plugin caches it because every
+/// later MoEngage call (`selfHandledShown`, `…Clicked`, `…Dismissed`) needs it
+/// back. That cache entry is the resource here, and its lifetime is bound to the
+/// presentation's `outcome`: it is freed when the presentation settles, on
+/// **both** arms. Before v2 it was freed only on a dismissal, which a dropped
+/// campaign never produces, so every campaign Digia declined leaked an SDK
+/// object for the life of the session.
+///
+/// ## Design
+/// - **SRP** — mapping, caching, event dispatch and the SDK seam each live in
+///   their own type.
+/// - **DIP** — depends on `MoEngageClient`, `ICampaignCache` and
+///   `ICampaignPayloadMapper`, never on `MoEngageSDKInApp.sharedInstance`. That
+///   is what lets the whole plugin run under XCTest with a fake client.
 @MainActor
 public final class MoEngagePlugin: DigiaCEPPlugin {
 
     // MARK: - Public
 
-    public let identifier = "moengage"
+    public let id = "moengage"
 
     // MARK: - Private
 
+    private let client: MoEngageClient
     private let cache: ICampaignCache
     private let mapper: ICampaignPayloadMapper
     private let dispatcher: MoEngageEventDispatcher
-    private weak var delegate: DigiaCEPDelegate?
 
-    private let logger = Logger(subsystem: "com.digia.moengage", category: "MoEngagePlugin")
+    private var host: DigiaCEPHost?
 
-    /// Obj-C bridge: `MoEngageInAppNativeDelegate` requires `NSObjectProtocol`.
-    private lazy var inAppDelegate = MoEngageInAppDelegateAdapter(plugin: self)
+    /// Presentations this plugin still owns, keyed by presentation id.
+    ///
+    /// The core-minted id, not the campaign id: the campaign id repeats
+    /// across deliveries, and sharing an entry would steal a dismissal.
+    /// Also the idempotency guard on the terminal path: `finish` removes the
+    /// entry first, so the outcome task and `detach()` can race and only the
+    /// first one does any work.
+    private var live: [String: CampaignPresentation] = [:]
+
+    private let log = DigiaLogger("ME")
+
+    /// Campaigns held while Core is not ready, one copy per campaign id. A drop
+    /// needs no MoEngage call: the campaign was never marked, so it stays eligible.
+    private lazy var pending = PendingPayloadBuffer(onDrop: { [weak self] in self?.onPendingDropped($0, $1) })
+
+    /// The MoEngage campaign of each held trigger, keyed by `cepCampaignId`.
+    private var heldCampaigns: [String: MoEngageSelfHandledCampaign] = [:]
+
+    /// Core init failed: stop holding until Core is ready again.
+    private var hostFailed = false
 
     // MARK: - Init
 
+    public convenience init() {
+        self.init(client: MoEngageSdkClient())
+    }
+
     /// Creates a `MoEngagePlugin`.
     ///
-    /// `cache` and `mapper` are optional — default implementations are used when
-    /// omitted. Provide custom implementations for testing or alternative strategies.
+    /// `client`, `cache` and `mapper` are injectable — pass fakes in tests, or
+    /// an alternative storage strategy in production.
     public init(
+        client: MoEngageClient,
         cache: ICampaignCache = CampaignCache(),
         mapper: ICampaignPayloadMapper = CampaignPayloadMapper()
     ) {
+        self.client = client
         self.cache = cache
         self.mapper = mapper
-        self.dispatcher = MoEngageEventDispatcher(cache: cache)
+        self.dispatcher = MoEngageEventDispatcher(client: client, cache: cache)
+
+        installListener()
     }
 
     // MARK: - DigiaCEPPlugin
 
-    public func setup(delegate: DigiaCEPDelegate) {
-        self.delegate = delegate
-        MoEngageSDKInApp.sharedInstance.setInAppDelegate(inAppDelegate)
-        MoEngageSDKInApp.sharedInstance.getSelfHandledInApp(completionBlock: { [weak self] campaign, _ in
-            guard let self, let campaign else { return }
-            self.handleSelfHandledCampaign(campaign)
-        })
-        logger.info("\(self.identifier): setup complete — listening for self-handled in-app campaigns")
+    public func attach(host: DigiaCEPHost) {
+        guard self.host == nil else { return }
+        self.host = host
+        installListener()
+
+        // Re-pull, not a buffer flush: a pre-attach campaign was discarded,
+        // never marked, so it stays eligible and MoEngage offers it again here.
+        client.fetchSelfHandledInApp()
+        log.i("Plugin attached — listening for self-handled in-app campaigns")
+        if host.isReady { onHostReady() }
     }
 
-    public func forwardScreen(_ name: String) {
-        MoEngageSDKInApp.sharedInstance.setCurrentInAppContexts([name])
-        MoEngageSDKInApp.sharedInstance.getSelfHandledInApp(completionBlock: { [weak self] campaign, _ in
-            guard let self, let campaign else { return }
-            self.handleSelfHandledCampaign(campaign)
-        })
-        logger.info("\(self.identifier): forwardScreen → \(name)")
+    public func onScreenChanged(_ screenName: String) {
+        client.setCurrentContexts([screenName])
+        client.fetchSelfHandledInApp()
+        log.d("Screen tracked (screen=\(screenName))")
     }
 
-    public func notifyEvent(_ event: DigiaExperienceEvent, payload: InAppPayload) {
-        guard payload.cepContext["campaignId"] != nil else {
-            logger.warning("(self.identifier): notifyEvent  missing campaignId in cepContext")
-            return
+    public func onHostReady() {
+        hostFailed = false
+        let held = pending.takeAll()
+        guard !held.isEmpty else { return }
+        log.i("Digia ready — flushing \(held.count) held payloads")
+        for trigger in held {
+            if let campaign = heldCampaigns.removeValue(forKey: trigger.cepCampaignId) { receive(campaign) }
         }
-        dispatcher.dispatch(event, payload: payload)
     }
 
-    public func teardown() {
-        delegate = nil
+    public func onHostInitFailed() {
+        onHostFailed()
+    }
+
+    public func detach() {
+        hostFailed = false
+        pending.dropAll(DropReason.pluginDetached)
+        // Core settles a plugin's presentations before detaching it, but the
+        // tasks awaiting those outcomes have not necessarily run yet. This is
+        // the last moment the plugin can free MoEngage's side and its own cache.
+        for (key, presentation) in live {   // a snapshot: `finish` mutates `live`
+            // Read the outcome rather than assuming `false`: `cancel()` settles on the main
+            // actor, inline, so by now the true terminal result is here. If core had already
+            // settled this presentation as `dismissed` and only its awaiting task had yet to
+            // run, hardcoding `false` silently dropped the final CEP marking for a campaign
+            // the user really did see.
+            presentation.cancel()
+            finish(
+                key: key,
+                trigger: presentation.trigger,
+                displayed: presentation.outcome.settledValue.map(didDisplay) ?? false
+            )
+        }
+        live.removeAll()
+
+        client.setSelfHandledListener(nil)
         cache.clear()
-        logger.info("\(self.identifier): teardown complete")
+        host = nil
+        log.i("Plugin detached")
     }
 
+    /// Not part of ``DigiaCEPPlugin`` — a plugin-level diagnostic a host app
+    /// can call directly.
     public func healthCheck() -> DiagnosticReport {
-        guard delegate != nil else {
+        guard host != nil else {
             return DiagnosticReport(
                 isHealthy: false,
-                issue: "Plugin has no delegate — setup() has not been called.",
+                issue: "Plugin has no host — attach() has not been called.",
                 resolution: "Call Digia.register(MoEngagePlugin()) before using the SDK."
             )
         }
         return DiagnosticReport(
             isHealthy: true,
             metadata: [
-                "identifier":       identifier,
-                "delegateSet":      "true",
-                "cachedCampaigns":  "\(cache.count)",
-                "cachedCampaignIds": cache.campaignIds.joined(separator: ","),
+                "id":                 id,
+                "attached":           "true",
+                "livePresentations":  "\(live.count)",
+                "cachedCampaigns":    "\(cache.count)",
+                "cachedCampaignIds":  cache.campaignIds.joined(separator: ","),
             ]
         )
     }
 
-    // MARK: - Private helpers
+    // MARK: - Delivery
 
-    func handleSelfHandledCampaign(_ campaign: MoEngageInAppSelfHandledCampaign) {
-        let payload = mapper.map(campaign)
-        cache.put(campaignId: payload.id, data: campaign)
-        logger.info("\(self.identifier): campaign ready — id=\(payload.id)")
-        delegate?.onCampaignTriggered(payload)
+    /// Installs the self-handled listener: at construction so it is ready before
+    /// attach, and on every attach so a re-register after detach hears campaigns
+    /// again. A campaign with no host drops as not_ready (de_workspace#42).
+    private func installListener() {
+        client.setSelfHandledListener { [weak self] campaign in
+            self?.onCampaignTriggered(campaign)
+        }
+    }
+
+    func onCampaignTriggered(_ campaign: MoEngageSelfHandledCampaign) {
+        receive(campaign)
+    }
+
+    /// Hands a campaign to Digia and binds MoEngage's side to the handle.
+    ///
+    /// Shown and clicked ride `onSignal`; the dismissal and the cache entry ride
+    /// `outcome`. Nothing rides `holdReleased` — MoEngage has no hold to free
+    /// early (spec §7.3).
+    private func receive(_ campaign: MoEngageSelfHandledCampaign) {
+        let trigger = mapper.map(campaign)
+        guard let host else {
+            // de_workspace#42: no wait, no marking calls. The campaign stays
+            // eligible and returns on the re-pull at attach.
+            log.w(
+                "Dropping \(campaign.campaignId) — no host attached (not_ready)",
+                campaign: trigger.campaignKey,
+                stage: .trigger,
+                reason: DropReason.notReady
+            )
+            return
+        }
+        if !hostFailed && !host.isReady {
+            log.i("Held until Digia is ready (cepId=\(trigger.cepCampaignId))", campaign: trigger.campaignKey)
+            hold(campaign, trigger)
+            return
+        }
+
+        let presentation = host.deliver(trigger)
+        if holdIfNotReady(presentation, campaign) { return }
+        // Keyed by presentation id — see `live`.
+        let key = presentation.id
+        cache.put(campaignId: key, data: campaign)
+        log.i("Received (cepId=\(trigger.cepCampaignId))", campaign: trigger.campaignKey)
+        live[key] = presentation
+
+        _ = presentation.onSignal { [weak self] signal in
+            guard let self else { return }
+            switch signal {
+            case .displayed: self.dispatcher.campaignShown(key: key, campaignKey: trigger.campaignKey)
+            case .clicked:   self.dispatcher.campaignClicked(key: key, campaignKey: trigger.campaignKey)
+            }
+        }
+
+        // A synchronous drop settled before any task could be scheduled. Free
+        // the entry inline rather than across a suspension point.
+        if let outcome = presentation.outcome.settledValue {
+            finish(key: key, trigger: trigger, displayed: didDisplay(outcome))
+            return
+        }
+
+        // `weak self`: PresentationPromise deliberately ignores cancellation, so
+        // a task awaiting an outcome core never settles parks forever — it must
+        // not keep the plugin alive.
+        Task { @MainActor [weak self] in
+            let outcome = await presentation.outcome.value
+            self?.finish(key: key, trigger: trigger, displayed: didDisplay(outcome))
+        }
+    }
+
+    /// Holds a not-ready campaign again and returns true; stops holding on
+    /// initialization_failed.
+    private func holdIfNotReady(_ presentation: CampaignPresentation, _ campaign: MoEngageSelfHandledCampaign) -> Bool {
+        guard case .dropped(let reason, _)? = presentation.outcome.settledValue else { return false }
+        switch reason {
+        case .notReady where !hostFailed, .notInitialized where !hostFailed:
+            log.i("Digia not ready — held again", campaign: presentation.trigger.campaignKey, reason: reason)
+            hold(campaign, presentation.trigger)
+            return true
+        case .initializationFailed:
+            onHostFailed()
+        default:
+            break
+        }
+        return false
+    }
+
+    private func hold(_ campaign: MoEngageSelfHandledCampaign, _ trigger: CEPTriggerPayload) {
+        heldCampaigns[trigger.cepCampaignId] = campaign
+        pending.add(trigger)
+    }
+
+    private func onHostFailed() {
+        guard !hostFailed else { return }
+        hostFailed = true
+        pending.dropAll(DropReason.initializationFailed)
+    }
+
+    private func onPendingDropped(_ trigger: CEPTriggerPayload, _ reason: DropReason) {
+        heldCampaigns[trigger.cepCampaignId] = nil
+        log.w(
+            "Dropped while held (cepId=\(trigger.cepCampaignId))",
+            campaign: trigger.campaignKey,
+            stage: .trigger,
+            reason: reason,
+            extras: ["cep": "moengage"]
+        )
+    }
+
+    /// The single terminal funnel. Idempotent through `live`, so the outcome
+    /// task and `detach()` may both call it.
+    private func finish(key: String, trigger: CEPTriggerPayload, displayed: Bool) {
+        guard live.removeValue(forKey: key) != nil else { return }
+        dispatcher.experienceEnded(key: key, campaignKey: trigger.campaignKey, cepId: trigger.cepCampaignId, displayed: displayed)
     }
 }
 
-// MARK: - MoEngageInAppNativeDelegate adapter
-
-/// Bridges `MoEngageInAppNativeDelegate` (an Obj-C protocol requiring `NSObjectProtocol`)
-/// to the `@MainActor` `MoEngagePlugin`.
-private final class MoEngageInAppDelegateAdapter: NSObject, MoEngageInAppNativeDelegate {
-    private weak var plugin: MoEngagePlugin?
-
-    init(plugin: MoEngagePlugin) {
-        self.plugin = plugin
-    }
-
-    func inAppShown(withCampaignInfo inappCampaign: MoEngageInAppCampaign,
-                    forAccountMeta accountMeta: MoEngageAccountMeta) {}
-
-    func inAppClicked(withCampaignInfo inappCampaign: MoEngageInAppCampaign,
-                      andNavigationActionInfo navigationAction: MoEngageInAppNavigationAction,
-                      forAccountMeta accountMeta: MoEngageAccountMeta) {}
-
-    func inAppClicked(withCampaignInfo inappCampaign: MoEngageInAppCampaign,
-                      andCustomActionInfo customAction: MoEngageInAppAction,
-                      forAccountMeta accountMeta: MoEngageAccountMeta) {}
-
-    func inAppDismissed(withCampaignInfo inappCampaign: MoEngageInAppCampaign,
-                        forAccountMeta accountMeta: MoEngageAccountMeta) {}
-
-    func selfHandledInAppTriggered(withInfo inappCampaign: MoEngageInAppSelfHandledCampaign,
-                                   forAccountMeta accountMeta: MoEngageAccountMeta) {
-        Task { @MainActor [weak self] in
-            self?.plugin?.handleSelfHandledCampaign(inappCampaign)
-        }
-    }
+/// `dismissed` is the only arm that means the experience reached the screen.
+private func didDisplay(_ outcome: PresentationOutcome) -> Bool {
+    if case .dismissed = outcome { return true }
+    return false
 }
