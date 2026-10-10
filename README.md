@@ -6,12 +6,10 @@ A [Digia Engage](https://github.com/Digia-Technology-Private-Limited/de_ios_core
 
 | | Minimum |
 |---|---|
-| iOS | 15.0 (see the note below) |
+| iOS | 15.0 |
 | DigiaEngage | 4.0.0 |
 | MoEngage (Swift Package Manager) | `apple-sdk` 9.23.0 |
 | MoEngage (CocoaPods) | `MoEngageCore` 9.18 up to 11.0, `MoEngageInApps` 6.01 up to 8.00 |
-
-**iOS 15 is the package's deployment floor, not where campaigns run.** Digia Engage renders campaigns on iOS 17 and later. On earlier versions `Digia.initialize` and `Digia.register` do nothing, so the app builds and runs but shows no Digia campaigns.
 
 ## Installation
 
