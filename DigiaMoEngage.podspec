@@ -5,11 +5,11 @@ Pod::Spec.new do |s|
   s.description      = <<-DESC
     Routes MoEngage self-handled in-app campaigns into Digia Engage.
   DESC
-  s.homepage         = 'https://github.com/Digia-Technology-Private-Limited/digia_moengage_iOS'
+  s.homepage         = 'https://github.com/Digia-Technology-Private-Limited/de_ios_moengage'
   s.license          = { :type => 'BUSL-1.1', :file => 'LICENSE' }
   s.author           = { 'Digia Engg' => 'engg@digia.tech' }
   s.source           = {
-    :git => 'https://github.com/Digia-Technology-Private-Limited/digia_moengage_iOS.git',
+    :git => 'https://github.com/Digia-Technology-Private-Limited/de_ios_moengage.git',
     :tag => s.version.to_s
   }
   # Follows core, which requires iOS 15 — see the matching comment in Package.swift.
@@ -23,26 +23,20 @@ Pod::Spec.new do |s|
   # resolution outright — the clevertap_plugin 3.8.1 failure mode.
   s.dependency 'DigiaEngage', '~> 4.0'
 
-  # MoEngage's CocoaPods and SPM release lines use different version numbers for
-  # the same underlying release, so the ranges below are NOT copy-pasted from
-  # Package.swift's `from: "9.18.0"` — they are the CocoaPods coordinates for
-  # the same code, worked out against MoEngage's published podspecs:
+  # Depend on MoEngage's umbrella pod, not on MoEngageCore and MoEngageInApps
+  # separately. MoEngage's module pods declare no version limits on one another,
+  # so on a clean install CocoaPods floats each to its newest release and mixes
+  # builds from different MoEngage lines (MoEngageMessaging 6.x, from MoEngage 11,
+  # beside MoEngageCore 10.x does not compile). Every umbrella version pins one
+  # matching set of modules, and its InApps subspec brings in MoEngageCore and
+  # MoEngageInApps, which Sources/DigiaMoEngage imports directly.
   #
-  # - MoEngageCore's pod version tracks the SDK's umbrella tag 1:1 (pod 9.18.0
-  #   ships from github.com/moengage/MoEngage-iOS-SDK tag 9.18.0, pod 9.24.0
-  #   from apple-sdk tag 9.24.0 — verified via the podspecs' own `s.source`).
-  #   So the SPM `from: "9.18.0"` floor (>= 9.18.0, < 10.0.0) carries over as-is.
-  # - MoEngageInApps (the SPM product this plugin imports) is versioned on its
-  #   OWN module line, offset from the umbrella by -3 majors: pod 6.01.0 ships
-  #   from umbrella tag 9.18.0, pod 6.06.0 from 9.24.0, pod 7.00.0 from the next
-  #   umbrella major 10.00.0 (confirmed the same way, via each podspec's
-  #   `s.source`). 6.01.0 is therefore the pod version matching the SPM floor,
-  #   and 7.00.0 — which also bumps MoEngage's own iOS floor to 13 and moves the
-  #   source repo to moengage/apple-sdk — is the next-major cutoff.
-  #
-  # Sources/DigiaMoEngage imports both MoEngageCore and MoEngageInApps directly,
-  # so both are declared here rather than left to resolve transitively through
-  # MoEngageInApps's own (unconstrained) dependency on MoEngageCore.
-  s.dependency 'MoEngageCore', '>= 9.18.0', '< 11.0.0'
-  s.dependency 'MoEngageInApps', '>= 6.01.0', '< 8.00.0'
+  # The umbrella pod's version is the MoEngage release number, the same one SPM
+  # uses, so the floor carries over: 9.18.0 is the oldest release supported on
+  # CocoaPods (MoEngageInApps 6.01.0). Package.swift starts at 9.23.0 only because
+  # earlier tags carry no Package.swift. The ceiling stops before 11.00.0: that
+  # line ships MoEngageInApps as a statically linked binary, which CocoaPods
+  # refuses under a dynamic framework unless this pod sets `static_framework`.
+  # Raise it together with that decision, and lint.
+  s.dependency 'MoEngage-iOS-SDK/InApps', '>= 9.18.0', '< 11.0.0'
 end

@@ -9,7 +9,7 @@ A [Digia Engage](https://github.com/Digia-Technology-Private-Limited/de_ios_core
 | iOS | 15.0 |
 | DigiaEngage | 4.0.0 |
 | MoEngage (Swift Package Manager) | `apple-sdk` 9.23.0 |
-| MoEngage (CocoaPods) | `MoEngageCore` 9.18 up to 11.0, `MoEngageInApps` 6.01 up to 8.00 |
+| MoEngage (CocoaPods) | `MoEngage-iOS-SDK` 9.18 up to 11.0 |
 
 ## Installation
 
@@ -42,10 +42,13 @@ Or add it directly in Xcode via **File → Add Package Dependencies** and enter 
 ### CocoaPods
 
 ```ruby
+pod 'MoEngage-iOS-SDK/InApps', '10.14.0' # any release from 9.18 up to 11.0
 pod 'DigiaMoEngage', '~> 2.0'
 ```
 
-The pod depends on `DigiaEngage` (`~> 4.0`), `MoEngageCore` and `MoEngageInApps`. It does not bundle any of them.
+Install MoEngage through its `MoEngage-iOS-SDK` pod, as above, rather than pinning individual module pods such as `MoEngageCore` or `MoEngageInApps`. `MoEngage-iOS-SDK` pins one matching version of every MoEngage module. MoEngage's module pods do not limit each other's versions, so pinning them separately can end in a `pod install` version conflict or a build error in `MoEngageMessaging`.
+
+The pod depends on `DigiaEngage` (`~> 4.0`) and `MoEngage-iOS-SDK/InApps` (9.18 up to 11.0), which brings in `MoEngageCore` and `MoEngageInApps` at matching versions. It does not bundle any of them. MoEngage 11 is not supported on CocoaPods yet.
 
 ## Usage
 
