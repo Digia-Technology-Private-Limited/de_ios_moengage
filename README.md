@@ -8,8 +8,8 @@ A [Digia Engage](https://github.com/Digia-Technology-Private-Limited/de_ios_core
 |---|---|
 | iOS | 15.0 |
 | DigiaEngage | 4.0.0 |
-| MoEngage (Swift Package Manager) | `apple-sdk` 9.23.0 |
-| MoEngage (CocoaPods) | `MoEngage-iOS-SDK` 9.18 up to 11.0 |
+| MoEngage (Swift Package Manager) | `apple-sdk >= 9.23.0, < 11.0.0` |
+| MoEngage (CocoaPods) | `MoEngage-iOS-SDK >= 9.18.0, < 11.0.0` |
 
 ## Installation
 
