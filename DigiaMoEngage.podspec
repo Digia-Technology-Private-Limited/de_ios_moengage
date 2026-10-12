@@ -1,6 +1,6 @@
 Pod::Spec.new do |s|
   s.name             = 'DigiaMoEngage'
-  s.version          = '1.0.0'
+  s.version          = '2.0.0'
   s.summary          = 'Digia Engage MoEngage plugin for iOS.'
   s.description      = <<-DESC
     Routes MoEngage self-handled in-app campaigns into Digia Engage.
