@@ -25,9 +25,10 @@ let package = Package(
             from: "4.0.0"
         ),
         // MoEngage's documented SPM URL. Tags before 9.23.0 carry no Package.swift.
+        // 11.x changes linkage and must be adopted in a separately tested release.
         .package(
             url: "https://github.com/moengage/apple-sdk.git",
-            from: "9.23.0"
+            "9.23.0"..<"11.0.0"
         ),
     ],
     targets: [
