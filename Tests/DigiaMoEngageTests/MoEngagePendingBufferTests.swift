@@ -33,6 +33,37 @@ struct MoEngagePendingBufferTests {
         #expect(cache.count == 2)
     }
 
+    @Test("a campaign arriving after ready is delivered at once, never held")
+    func postReadySkipsTheBuffer() {
+        client.emit(FakeCampaign.modal(campaignId: "c-early"))
+        host.isReady = true
+        plugin.onHostReady()
+
+        client.emit(FakeCampaign.modal(campaignId: "c-late"))
+
+        #expect(
+            host.delivered.map(\.cepCampaignId) == ["c-early", "c-late"],
+            "the late campaign reaches Core at once, behind the flushed one"
+        )
+
+        plugin.onHostReady()
+        #expect(host.delivered.count == 2, "nothing was held, so a second flush delivers nothing")
+    }
+
+    @Test("past the cap the oldest campaigns are lost and the newest twenty flush newest first")
+    func capKeepsNewestTwenty() {
+        for index in 1...25 { client.emit(FakeCampaign.modal(campaignId: "c-\(index)")) }
+
+        host.isReady = true
+        plugin.onHostReady()
+
+        #expect(
+            host.delivered.map(\.cepCampaignId) == (6...25).reversed().map { "c-\($0)" },
+            "the oldest five are evicted, and the surviving twenty flush newest first"
+        )
+        #expect(client.dismissed.isEmpty, "a buffer drop never marks the campaign with MoEngage")
+    }
+
     @Test("a re-pulled duplicate of a held campaign is skipped")
     func dedupHeld() {
         client.emit(FakeCampaign.modal(campaignId: "c1"))
